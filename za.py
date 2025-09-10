@@ -1854,8 +1854,7 @@ def main():
 
         # 下层第二列：新增的「库存风险状态汇总表」（调用你之前定义的两个函数）
         with col_lower2:
-            # 1. 调用create_risk_summary_table生成表格数据（注意：原数据中滞销库存列名为「总滞销库存」，需与函数内一致）
-            # （关键修正：原代码函数内用「滞销库存数」，需改为实际列名「总滞销库存」，避免数据为空）
+            # 1. 修复后的create_risk_summary_table函数（新增占比计算逻辑）
             def create_risk_summary_table(current_data, previous_data):
                 statuses = [
                     "健康",
@@ -1874,38 +1873,103 @@ def main():
                     "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
                 }
                 summary_data = []
+
+                # 关键新增：计算当前周期的总MSKU数和总滞销库存数（用于算占比）
+                total_current_msku = current_data['MSKU'].nunique()  # 全量MSKU总数
+                total_current_inventory = current_data['总滞销库存'].sum()  # 全量滞销库存总数
+
                 for status in statuses:
                     original_statuses = status_mappings[status]
-                    # 修正：使用实际列名「总滞销库存」
+                    # 1. 计算当前状态的基础数据
                     current_filtered = current_data[current_data['状态判断'].isin(original_statuses)]
                     current_msku = current_filtered['MSKU'].nunique()
-                    current_inventory = current_filtered['总滞销库存'].sum()  # 改为「总滞销库存」
+                    current_inventory = current_filtered['总滞销库存'].sum()
 
+                    # 2. 关键新增：计算占比（避免除以0，无数据时占比为0%）
+                    msku_ratio = (current_msku / total_current_msku * 100) if total_current_msku != 0 else 0
+                    inventory_ratio = (
+                                current_inventory / total_current_inventory * 100) if total_current_inventory != 0 else 0
+
+                    # 3. 计算上周数据（环比用）
                     prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)] if (
-                                previous_data is not None and not previous_data.empty) else pd.DataFrame()
+                            previous_data is not None and not previous_data.empty) else pd.DataFrame()
                     prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
-                    prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0  # 改为「总滞销库存」
+                    prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
 
+                    # 4. 计算环比变化
                     msku_change = current_msku - prev_msku
                     msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
                     inventory_change = current_inventory - prev_inventory
                     inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
 
+                    # 5. 关键新增：将占比字段加入结果（必须添加，否则表格无此列）
                     summary_data.append({
                         "状态判断": status,
                         "MSKU数": current_msku,
+                        "MSKU占比(%)": round(msku_ratio, 2),  # 新增占比列1
                         "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
-                        "总滞销库存数": round(current_inventory, 2),  # 保留2位小数，更规范
-                        "库存环比变化": f"{round(inventory_change, 2)} ({inventory_change_pct:.1f}%)"  # 保留2位小数
+                        "总滞销库存数": round(current_inventory, 2),
+                        "总滞销库存占比(%)": round(inventory_ratio, 2),  # 新增占比列2
+                        "库存环比变化": f"{round(inventory_change, 2)} ({inventory_change_pct:.1f}%)"
                     })
                 return pd.DataFrame(summary_data)
 
-            # 2. 生成表格数据（传入当前周和上周数据）
+            # 2. 生成表格数据（此时数据已包含占比字段）
             summary_df = create_risk_summary_table(current_data, prev_data)
 
-            # 3. 调用render_risk_summary_table渲染表格
-            render_risk_summary_table(summary_df)
+            # （可选调试：打印列名确认占比列存在，调试完可删除）
+            # st.write("当前表格列名：", summary_df.columns.tolist())
 
+            # 3. 调用渲染函数（需确保render_risk_summary_table是优化后的版本）
+            # 【重要】这里必须使用支持占比列渲染的render_risk_summary_table函数，代码如下：
+            def render_risk_summary_table(summary_df):
+                st.subheader("库存风险状态汇总表")
+                # 自定义表格样式（适配占比列）
+                st.markdown("""
+                <style>
+                .summary-table {width:100%; border-collapse:collapse; margin:10px 0; font-size:13px;}
+                .summary-table th, .summary-table td {padding:10px 12px; text-align:left; border-bottom:1px solid #ddd;}
+                .summary-table th {background-color:#f8f9fa; font-weight:bold; color:#333;}
+                .summary-table tr:hover {background-color:#f5f5f5;}
+                .positive-change {color:#2E8B57;}
+                .negative-change {color:#DC143C;}
+                .ratio-col {color:#4169E1; font-weight:500;} /* 占比列蓝色突出 */
+                </style>
+                """, unsafe_allow_html=True)
+
+                # 渲染表格（动态遍历所有列，包括新增的占比列）
+                html = "<table class='summary-table'><tr>"
+                # 动态生成表头（确保占比列被包含）
+                for col in summary_df.columns:
+                    html += f"<th>{col}</th>"
+                html += "</tr>"
+
+                # 动态生成表内容（对占比列和环比列着色）
+                for _, row in summary_df.iterrows():
+                    html += "<tr>"
+                    for col, value in row.items():
+                        if "占比(%)" in col:
+                            html += f"<td class='ratio-col'>{value}%</td>"  # 占比列蓝色
+                        elif "环比变化" in col:
+                            if '(' in str(value):
+                                change_pct = value.split('(')[1]
+                                if change_pct.startswith('-'):
+                                    html += f"<td class='negative-change'>{value}</td>"
+                                else:
+                                    html += f"<td class='positive-change'>{value}</td>"
+                            else:
+                                html += f"<td>{value}</td>"
+                        else:
+                            html += f"<td>{value}</td>"
+                    html += "</tr></table>"
+
+                st.markdown(html, unsafe_allow_html=True)
+                # 数据说明
+                st.markdown("<p style='font-size:12px; color:#666;'>注：占比=当前状态数据/全量数据×100%</p>",
+                            unsafe_allow_html=True)
+
+            # 执行渲染（此时表格会显示占比列）
+            render_risk_summary_table(summary_df)
         # 第四个图表：组合图（添加正确的阈值线）
         st.subheader("总体库存消耗天数与滞销库存分布")
 
