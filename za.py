@@ -916,16 +916,14 @@ def render_status_change_table(data, page=1, page_size=30):
 
 def create_risk_summary_table(current_data, previous_data):
     """
-    创建库存风险状态汇总表格，包含合并状态判断
-
+    创建库存风险状态汇总表格，包含合并状态判断+MSKU占比+库存占比
     参数:
     current_data: 当前周期的数据DataFrame
     previous_data: 上一周期（上周）的数据DataFrame
-
     返回:
     格式化的汇总表格DataFrame
     """
-    # 定义所有需要展示的状态，包括合并状态
+    # 定义所有需要展示的状态（含合并状态）
     statuses = [
         "健康",
         "低滞销风险",
@@ -945,37 +943,57 @@ def create_risk_summary_table(current_data, previous_data):
         "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
     }
 
+    # 计算当前周期的【总MSKU数】和【总滞销库存数】（用于计算占比）
+    total_current_msku = current_data['MSKU'].nunique()  # 当前总MSKU数
+    total_current_inventory = current_data['总滞销库存'].sum()  # 当前总滞销库存数（与原数据列名一致）
+
     # 初始化结果列表
     summary_data = []
 
     for status in statuses:
-        # 获取当前状态对应的原始状态列表
         original_statuses = status_mappings[status]
 
-        # 计算当前周期数据
+        # --------------------------
+        # 1. 计算当前周期数据（含占比）
+        # --------------------------
         current_filtered = current_data[current_data['状态判断'].isin(original_statuses)]
-        current_msku = current_filtered['MSKU'].nunique()
-        current_inventory = current_filtered['滞销库存数'].sum()
+        current_msku = current_filtered['MSKU'].nunique()  # 当前状态MSKU数
+        current_inventory = current_filtered['总滞销库存'].sum()  # 当前状态总滞销库存数
 
-        # 计算上一周期数据
-        prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)]
-        prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
-        prev_inventory = prev_filtered['滞销库存数'].sum() if not prev_filtered.empty else 0
+        # 计算占比（避免除以0，无数据时占比为0%）
+        msku_ratio = (current_msku / total_current_msku * 100) if total_current_msku != 0 else 0
+        inventory_ratio = (current_inventory / total_current_inventory * 100) if total_current_inventory != 0 else 0
 
-        # 计算与上周的对比
+        # --------------------------
+        # 2. 计算上一周期数据（用于环比）
+        # --------------------------
+        # 处理上周无数据的情况
+        if previous_data is None or previous_data.empty:
+            prev_msku = 0
+            prev_inventory = 0
+        else:
+            prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)]
+            prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
+            prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
+
+        # --------------------------
+        # 3. 计算环比变化（绝对值+百分比）
+        # --------------------------
         msku_change = current_msku - prev_msku
         msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
 
         inventory_change = current_inventory - prev_inventory
         inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
 
-        # 添加到结果列表
+        # 添加到结果列表（保留2位小数，确保数据整洁）
         summary_data.append({
             "状态判断": status,
             "MSKU数": current_msku,
-            "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
-            "总滞销库存数": current_inventory,
-            "库存环比变化": f"{inventory_change} ({inventory_change_pct:.1f}%)"
+            "MSKU占比(%)": round(msku_ratio, 2),  # 新增：MSKU占比
+            "MSKU环比变化": f"{msku_change} ({round(msku_change_pct, 1)}%)",
+            "总滞销库存数": round(current_inventory, 2),
+            "总滞销库存占比(%)": round(inventory_ratio, 2),  # 新增：库存占比
+            "库存环比变化": f"{round(inventory_change, 2)} ({round(inventory_change_pct, 1)}%)"
         })
 
     # 转换为DataFrame
@@ -985,52 +1003,56 @@ def create_risk_summary_table(current_data, previous_data):
 
 
 def render_risk_summary_table(summary_df):
-    """在Streamlit中渲染风险汇总表格"""
+    """在Streamlit中渲染优化后的风险汇总表格（含占比字段）"""
     st.subheader("库存风险状态汇总表")
 
-    # 自定义表格样式
+    # 自定义表格样式（调整列宽适配新增字段，优化可读性）
     st.markdown("""
     <style>
     .summary-table {
         width: 100%;
         border-collapse: collapse;
-        margin: 20px 0;
+        margin: 10px 0;
+        font-size: 13px;  /* 微调字体大小，避免列过宽 */
     }
     .summary-table th, .summary-table td {
-        padding: 12px 15px;
+        padding: 10px 12px;  /* 调整内边距，平衡列宽 */
         text-align: left;
         border-bottom: 1px solid #ddd;
     }
     .summary-table th {
         background-color: #f8f9fa;
         font-weight: bold;
+        color: #333;
     }
     .summary-table tr:hover {
         background-color: #f5f5f5;
     }
-    .positive-change {
-        color: #28a745;
-    }
-    .negative-change {
-        color: #dc3545;
-    }
+    /* 正负变化颜色标记 */
+    .positive-change { color: #2E8B57; }  /* 绿色：改善/增长 */
+    .negative-change { color: #DC143C; }  /* 红色：恶化/下降 */
+    /* 占比列特殊标记（突出显示） */
+    .ratio-col { color: #4169E1; font-weight: 500; }  /* 蓝色：占比数据 */
     </style>
     """, unsafe_allow_html=True)
 
-    # 渲染表格
+    # 渲染表格（含新增的占比列）
     html = "<table class='summary-table'>"
-    # 表头
+    # 1. 表头（包含新增的“MSKU占比(%)”和“总滞销库存占比(%)”）
     html += "<tr>"
     for col in summary_df.columns:
         html += f"<th>{col}</th>"
     html += "</tr>"
 
-    # 表内容
+    # 2. 表内容（对占比列和环比列单独着色）
     for _, row in summary_df.iterrows():
         html += "<tr>"
         for col, value in row.items():
-            if "环比变化" in col:
-                # 标记正负变化
+            # 处理占比列（蓝色突出）
+            if "占比(%)" in col:
+                html += f"<td class='ratio-col'>{value}%</td>"
+            # 处理环比列（正负色区分）
+            elif "环比变化" in col:
                 if '(' in str(value):
                     change_pct = value.split('(')[1]
                     if change_pct.startswith('-'):
@@ -1039,12 +1061,18 @@ def render_risk_summary_table(summary_df):
                         html += f"<td class='positive-change'>{value}</td>"
                 else:
                     html += f"<td>{value}</td>"
+            # 普通列（默认样式）
             else:
                 html += f"<td>{value}</td>"
         html += "</tr>"
     html += "</table>"
 
     st.markdown(html, unsafe_allow_html=True)
+
+    # 可选：添加数据说明（帮助用户理解占比含义）
+    st.markdown(
+        "<p style='font-size:12px; color:#666;'>注：MSKU占比=当前状态MSKU数/总MSKU数；总滞销库存占比=当前状态库存/总滞销库存数</p>",
+        unsafe_allow_html=True)
 
 
 def render_stock_forecast_chart(data, msku):
