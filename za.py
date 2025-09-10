@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 from math import ceil
+import streamlit_authenticator as stauth
 
 # 全局配置
 st.set_page_config(page_title="年份品滞销风险分析仪表盘", layout="wide", initial_sidebar_state="expanded")
