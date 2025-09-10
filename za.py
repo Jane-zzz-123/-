@@ -1837,71 +1837,10 @@ def main():
                 except (IndexError, KeyError) as e:
                     st.error(f"状态变化图表点击错误: {str(e)}")
 
-        def create_risk_summary_table(current_data, previous_data):
-            statuses = [
-                "健康",
-                "低滞销风险",
-                "中滞销风险",
-                "高滞销风险",
-                "低滞销风险+中滞销风险+高滞销风险",
-                "中滞销风险+高滞销风险"
-            ]
-            status_mappings = {
-                "健康": ["健康"],
-                "低滞销风险": ["低滞销风险"],
-                "中滞销风险": ["中滞销风险"],
-                "高滞销风险": ["高滞销风险"],
-                "低滞销风险+中滞销风险+高滞销风险": ["低滞销风险", "中滞销风险", "高滞销风险"],
-                "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
-            }
-
-            # 计算当前周期的总MSKU和总滞销库存（用于计算占比）
-            total_current_msku = current_data[
-                'MSKU'].nunique() if current_data is not None and not current_data.empty else 0
-            total_current_inventory = current_data[
-                '总滞销库存'].sum() if current_data is not None and not current_data.empty else 0
-
-            summary_data = []
-            for status in statuses:
-                original_statuses = status_mappings[status]
-
-                # 筛选当前周期数据
-                current_filtered = current_data[current_data['状态判断'].isin(original_statuses)] if (
-                        current_data is not None and not current_data.empty) else pd.DataFrame()
-                current_msku = current_filtered['MSKU'].nunique() if not current_filtered.empty else 0
-                current_inventory = current_filtered['总滞销库存'].sum() if not current_filtered.empty else 0
-
-                # 处理上一周期数据
-                if previous_data is not None and not previous_data.empty:
-                    prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)]
-                    prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
-                    prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
-                else:
-                    prev_msku = 0
-                    prev_inventory = 0
-
-                # 计算环比
-                msku_change = current_msku - prev_msku
-                msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
-                inventory_change = current_inventory - prev_inventory
-                inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
-
-                # 计算占比（当前状态值 / 总值）
-                msku_ratio = (current_msku / total_current_msku * 100) if total_current_msku != 0 else 0
-                inventory_ratio = (
-                            current_inventory / total_current_inventory * 100) if total_current_inventory != 0 else 0
-
-                summary_data.append({
-                    "状态判断": status,
-                    "MSKU数": current_msku,
-                    "MSKU占比": f"{msku_ratio:.1f}%",
-                    "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
-                    "总滞销库存数": round(current_inventory, 2),
-                    "总滞销库存占比": f"{inventory_ratio:.1f}%",
-                    "库存环比变化": f"{round(inventory_change, 2)} ({inventory_change_pct:.1f}%)"
-                })
-
-            return pd.DataFrame(summary_data)
+        current_week_data = get_week_data(df, selected_date)
+        previous_week_data = get_previous_week_data(df, selected_date)
+        summary_df = create_risk_summary_table(current_week_data, previous_week_data)
+        render_risk_summary_table(summary_df)
 
 
         # 第四个图表：组合图（添加正确的阈值线）
