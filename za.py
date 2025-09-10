@@ -1287,6 +1287,41 @@ def render_stock_forecast_chart(data, msku):
 # ------------------------------
 # 3. 主函数（页面布局）
 # ------------------------------
+# 1. 定义用户信息（可以放在全局，也可以放在main里）
+users = {
+    "user1": {
+        "name": "张三",
+        "password": "123456",  # 需用stauth.Hasher加密
+        "stores": ["争艳-US", "进益-US"]  # 张三负责的店铺
+    },
+    "user2": {
+        "name": "李四",
+        "password": "6654",
+        "stores": ["辰瑞-US"]  # 李四负责的店铺
+    }
+}
+# 初始化认证器
+hashed_passwords = [user["password"] for user in users.values()]
+names = [user["name"] for user in users.values()]
+usernames = list(users.keys())
+
+authenticator = stauth.Authenticate(
+    names, usernames, hashed_passwords,
+    "dashboard_cookie", "dashboard_signature_key",
+    cookie_expiry_days=30
+)
+
+# 显示登录窗口
+name, authentication_status, username = authenticator.login("登录", "main")
+
+if authentication_status is False:
+    st.error("用户名或密码错误")
+elif authentication_status is None:
+    st.warning("请输入用户名和密码")
+elif authentication_status:
+    # 登录成功，获取当前用户的店铺权限
+    current_user_stores = users[username]["stores"]
+    st.success(f"欢迎 {name}！您可以查看：{', '.join(current_user_stores)}")
 def main():
     # 初始化会话状态
     if "current_page" not in st.session_state:
