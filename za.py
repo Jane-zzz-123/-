@@ -1690,142 +1690,142 @@ def main():
                 STATUS_COLORS["高滞销风险"]
             )
 
-            # 6. 图表部分
-            col1, col2, col3 = st.columns(3)
+        # 6. 图表部分
+        col1, col2, col3 = st.columns(3)
 
-            # 第一个图表：总体状态分布
-            with col1:
-                status_data = pd.DataFrame({
-                    "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                    "MSKU数": [metrics_data[stat]["current"] for stat in
-                               ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-                })
+        # 第一个图表：总体状态分布
+        with col1:
+            status_data = pd.DataFrame({
+                "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
+                "MSKU数": [metrics_data[stat]["current"] for stat in
+                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+            })
 
-                fig_status = px.bar(
-                    status_data,
-                    x="状态",
-                    y="MSKU数",
-                    color="状态",
-                    color_discrete_map=STATUS_COLORS,
-                    title="总体状态分布",
-                    text="MSKU数",
-                    height=400,
-                    custom_data=["状态"]  # 保持交互数据
-                )
+            fig_status = px.bar(
+                status_data,
+                x="状态",
+                y="MSKU数",
+                color="状态",
+                color_discrete_map=STATUS_COLORS,
+                title="总体状态分布",
+                text="MSKU数",
+                height=400,
+                custom_data=["状态"]  # 保持交互数据
+            )
 
-                fig_status.update_traces(
-                    textposition="outside",
-                    textfont=dict(size=12, weight="bold"),
-                    marker=dict(line=dict(color="#ffffff", width=1))
-                )
+            fig_status.update_traces(
+                textposition="outside",
+                textfont=dict(size=12, weight="bold"),
+                marker=dict(line=dict(color="#ffffff", width=1))
+            )
 
-                fig_status.update_layout(
-                    xaxis_title="风险状态",
-                    yaxis_title="MSKU数量",
-                    showlegend=True,
-                    plot_bgcolor="#f8f9fa",
-                    margin=dict(t=50, b=20, l=20, r=20)
-                )
+            fig_status.update_layout(
+                xaxis_title="风险状态",
+                yaxis_title="MSKU数量",
+                showlegend=True,
+                plot_bgcolor="#f8f9fa",
+                margin=dict(t=50, b=20, l=20, r=20)
+            )
 
-                # 关键：移除 return_fig_objs=True，使用默认配置
-                st.plotly_chart(fig_status, use_container_width=True, config={'displayModeBar': True})
-                # 获取点击数据（Streamlit 1.21+ 支持）
-                status_click = st.session_state.get('fig_status_click', None)
-                status_click = st.session_state.get('fig_status_click', None)
-                if status_click:
-                    try:
-                        status = status_click['points'][0]['customdata'][0]
-                        st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
-                        st.success(f"已筛选：{status}")
-                    except (IndexError, KeyError) as e:
-                        st.error(f"状态分布图表点击错误: {str(e)}")
+            # 关键：移除 return_fig_objs=True，使用默认配置
+            st.plotly_chart(fig_status, use_container_width=True, config={'displayModeBar': True})
+            # 获取点击数据（Streamlit 1.21+ 支持）
+            status_click = st.session_state.get('fig_status_click', None)
+            status_click = st.session_state.get('fig_status_click', None)
+            if status_click:
+                try:
+                    status = status_click['points'][0]['customdata'][0]
+                    st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
+                    st.success(f"已筛选：{status}")
+                except (IndexError, KeyError) as e:
+                    st.error(f"状态分布图表点击错误: {str(e)}")
 
-            # 第二个图表：状态判断饼图
-            with col2:
-                pie_data = pd.DataFrame({
-                    "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                    "MSKU数": [metrics_data[stat]["current"] for stat in
-                               ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-                })
+        # 第二个图表：状态判断饼图
+        with col2:
+            pie_data = pd.DataFrame({
+                "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
+                "MSKU数": [metrics_data[stat]["current"] for stat in
+                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+            })
 
-                total = pie_data["MSKU数"].sum()
-                pie_data["占比"] = pie_data["MSKU数"].apply(lambda x: f"{(x / total * 100):.2f}%")
+            total = pie_data["MSKU数"].sum()
+            pie_data["占比"] = pie_data["MSKU数"].apply(lambda x: f"{(x / total * 100):.2f}%")
 
-                fig_pie = px.pie(
-                    pie_data,
-                    values="MSKU数",
-                    names="状态",
-                    color="状态",
-                    color_discrete_map=STATUS_COLORS,
-                    title="状态占比分布",
-                    height=400,
-                    custom_data=["状态"]  # 保持交互数据
-                )
+            fig_pie = px.pie(
+                pie_data,
+                values="MSKU数",
+                names="状态",
+                color="状态",
+                color_discrete_map=STATUS_COLORS,
+                title="状态占比分布",
+                height=400,
+                custom_data=["状态"]  # 保持交互数据
+            )
 
-                fig_pie.update_traces(
-                    textinfo="label+value+percent",
-                    textposition="inside",
-                    hole=0.3
-                )
+            fig_pie.update_traces(
+                textinfo="label+value+percent",
+                textposition="inside",
+                hole=0.3
+            )
 
-                fig_pie.update_layout(
-                    plot_bgcolor="#f8f9fa",
-                    margin=dict(t=50, b=20, l=20, r=20)
-                )
+            fig_pie.update_layout(
+                plot_bgcolor="#f8f9fa",
+                margin=dict(t=50, b=20, l=20, r=20)
+            )
 
-                # 关键：移除 return_fig_objs=True
-                st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': True})
-                pie_click = st.session_state.get('fig_pie_click', None)
-                pie_click = st.session_state.get('fig_pie_click', None)
-                if pie_click:
-                    try:
-                        status = pie_click['points'][0]['customdata'][0]
-                        st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
-                        st.success(f"已筛选：{status}")
-                    except (IndexError, KeyError) as e:
-                        st.error(f"饼图点击错误: {str(e)}")
+            # 关键：移除 return_fig_objs=True
+            st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': True})
+            pie_click = st.session_state.get('fig_pie_click', None)
+            pie_click = st.session_state.get('fig_pie_click', None)
+            if pie_click:
+                try:
+                    status = pie_click['points'][0]['customdata'][0]
+                    st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
+                    st.success(f"已筛选：{status}")
+                except (IndexError, KeyError) as e:
+                    st.error(f"饼图点击错误: {str(e)}")
 
-            # 第三个图表：环比上周库存滞销情况变化柱状图（按变好/不变/变差着色）
-            with col3:
-                # 准备状态变化数据
-                change_types = ["改善", "不变", "恶化"]
-                change_colors = {"改善": "#2E8B57", "不变": "#1E90FF", "恶化": "#DC143C"}
+        # 第三个图表：环比上周库存滞销情况变化柱状图（按变好/不变/变差着色）
+        with col3:
+            # 准备状态变化数据
+            change_types = ["改善", "不变", "恶化"]
+            change_colors = {"改善": "#2E8B57", "不变": "#1E90FF", "恶化": "#DC143C"}
 
-                # 创建堆叠柱状图数据
-                fig_change = go.Figure()
+            # 创建堆叠柱状图数据
+            fig_change = go.Figure()
 
-                for change_type in change_types:
-                    fig_change.add_trace(go.Bar(
-                        x=["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                        y=[status_change_counts[status][change_type] for status in
-                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]],
-                        name=change_type,
-                        marker_color=change_colors[change_type],
-                        customdata=[[status, change_type] for status in
-                                    ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-                    ))
+            for change_type in change_types:
+                fig_change.add_trace(go.Bar(
+                    x=["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
+                    y=[status_change_counts[status][change_type] for status in
+                       ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]],
+                    name=change_type,
+                    marker_color=change_colors[change_type],
+                    customdata=[[status, change_type] for status in
+                                ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+                ))
 
-                fig_change.update_layout(
-                    barmode='stack',
-                    title="环比上周库存滞销情况变化",
-                    xaxis_title="风险状态",
-                    yaxis_title="MSKU数量",
-                    plot_bgcolor="#f8f9fa",
-                    margin=dict(t=50, b=20, l=20, r=20),
-                    height=400
-                )
+            fig_change.update_layout(
+                barmode='stack',
+                title="环比上周库存滞销情况变化",
+                xaxis_title="风险状态",
+                yaxis_title="MSKU数量",
+                plot_bgcolor="#f8f9fa",
+                margin=dict(t=50, b=20, l=20, r=20),
+                height=400
+            )
 
-                # 关键：移除 return_fig_objs=True
-                st.plotly_chart(fig_change, use_container_width=True, config={'displayModeBar': True})
-                change_click = st.session_state.get('fig_change_click', None)
-                change_click = st.session_state.get('fig_change_click', None)
-                if change_click:
-                    try:
-                        status = change_click['points'][0]['customdata'][0]  # 从修复后的 customdata 获取
-                        change_type = change_click['points'][0]['customdata'][1]
-                        # 后续筛选逻辑不变...
-                    except (IndexError, KeyError) as e:
-                        st.error(f"状态变化图表点击错误: {str(e)}")
+            # 关键：移除 return_fig_objs=True
+            st.plotly_chart(fig_change, use_container_width=True, config={'displayModeBar': True})
+            change_click = st.session_state.get('fig_change_click', None)
+            change_click = st.session_state.get('fig_change_click', None)
+            if change_click:
+                try:
+                    status = change_click['points'][0]['customdata'][0]  # 从修复后的 customdata 获取
+                    change_type = change_click['points'][0]['customdata'][1]
+                    # 后续筛选逻辑不变...
+                except (IndexError, KeyError) as e:
+                    st.error(f"状态变化图表点击错误: {str(e)}")
 
         # 1. 调用create_risk_summary_table生成表格数据（注意：原数据中滞销库存列名为「总滞销库存」，需与函数内一致）
         # （关键修正：原代码函数内用「滞销库存数」，需改为实际列名「总滞销库存」，避免数据为空）
