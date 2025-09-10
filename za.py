@@ -915,15 +915,6 @@ def render_status_change_table(data, page=1, page_size=30):
 
 
 def create_risk_summary_table(current_data, previous_data):
-    """
-    创建库存风险状态汇总表格，包含合并状态判断+MSKU占比+库存占比
-    参数:
-    current_data: 当前周期的数据DataFrame
-    previous_data: 上一周期（上周）的数据DataFrame
-    返回:
-    格式化的汇总表格DataFrame
-    """
-    # 定义所有需要展示的状态（含合并状态）
     statuses = [
         "健康",
         "低滞销风险",
@@ -932,8 +923,6 @@ def create_risk_summary_table(current_data, previous_data):
         "低滞销风险+中滞销风险+高滞销风险",
         "中滞销风险+高滞销风险"
     ]
-
-    # 定义每个状态对应的原始状态列表
     status_mappings = {
         "健康": ["健康"],
         "低滞销风险": ["低滞销风险"],
@@ -942,131 +931,80 @@ def create_risk_summary_table(current_data, previous_data):
         "低滞销风险+中滞销风险+高滞销风险": ["低滞销风险", "中滞销风险", "高滞销风险"],
         "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
     }
-
-    # 计算当前周期的【总MSKU数】和【总滞销库存数】（用于计算占比）
-    total_current_msku = current_data['MSKU'].nunique()  # 当前总MSKU数
-    total_current_inventory = current_data['总滞销库存'].sum()  # 当前总滞销库存数（与原数据列名一致）
-
-    # 初始化结果列表
     summary_data = []
+
+    # 计算全量数据（用于占比）
+    total_current_msku = current_data['MSKU'].nunique()
+    total_current_inventory = current_data['总滞销库存'].sum()
 
     for status in statuses:
         original_statuses = status_mappings[status]
-
-        # --------------------------
-        # 1. 计算当前周期数据（含占比）
-        # --------------------------
+        # 1. 筛选当前状态数据
         current_filtered = current_data[current_data['状态判断'].isin(original_statuses)]
-        current_msku = current_filtered['MSKU'].nunique()  # 当前状态MSKU数
-        current_inventory = current_filtered['总滞销库存'].sum()  # 当前状态总滞销库存数
+        current_msku = current_filtered['MSKU'].nunique()
+        current_inventory = current_filtered['总滞销库存'].sum()
 
-        # 计算占比（避免除以0，无数据时占比为0%）
+        # 2. 计算占比
         msku_ratio = (current_msku / total_current_msku * 100) if total_current_msku != 0 else 0
         inventory_ratio = (current_inventory / total_current_inventory * 100) if total_current_inventory != 0 else 0
 
-        # --------------------------
-        # 2. 计算上一周期数据（用于环比）
-        # --------------------------
-        # 处理上周无数据的情况
-        if previous_data is None or previous_data.empty:
-            prev_msku = 0
-            prev_inventory = 0
-        else:
-            prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)]
-            prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
-            prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
+        # 3. 筛选上周数据（环比用）
+        prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)] if (
+                previous_data is not None and not previous_data.empty) else pd.DataFrame()
+        prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
+        prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
 
-        # --------------------------
-        # 3. 计算环比变化（绝对值+百分比）
-        # --------------------------
+        # 4. 计算环比变化
         msku_change = current_msku - prev_msku
         msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
-
         inventory_change = current_inventory - prev_inventory
         inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
 
-        # 添加到结果列表（保留2位小数，确保数据整洁）
+        # 5. 单独生成一行数据（关键：每个status独立append）
         summary_data.append({
             "状态判断": status,
             "MSKU数": current_msku,
-            "MSKU占比(%)": round(msku_ratio, 2),  # 新增：MSKU占比
-            "MSKU环比变化": f"{msku_change} ({round(msku_change_pct, 1)}%)",
+            "MSKU占比(%)": round(msku_ratio, 2),
+            "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
             "总滞销库存数": round(current_inventory, 2),
-            "总滞销库存占比(%)": round(inventory_ratio, 2),  # 新增：库存占比
-            "库存环比变化": f"{round(inventory_change, 2)} ({round(inventory_change_pct, 1)}%)"
+            "总滞销库存占比(%)": round(inventory_ratio, 2),
+            "库存环比变化": f"{round(inventory_change, 2)} ({inventory_change_pct:.1f}%)"
         })
-
-    # 转换为DataFrame
-    summary_df = pd.DataFrame(summary_data)
-
-    return summary_df
+    return pd.DataFrame(summary_data)
 
 
 def render_risk_summary_table(summary_df):
-    """在Streamlit中渲染风险汇总表格，确保表格格式正确"""
     st.subheader("库存风险状态汇总表")
-
-    # 自定义表格样式
     st.markdown("""
     <style>
-    .summary-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 20px 0;
-    }
-    .summary-table th, .summary-table td {
-        padding: 12px 15px;
-        text-align: left;
-        border: 1px solid #ddd;
-    }
-    .summary-table th {
-        background-color: #f8f9fa;
-        font-weight: bold;
-    }
-    .summary-table tr:hover {
-        background-color: #f5f5f5;
-    }
-    .positive-change {
-        color: #28a745;
-    }
-    .negative-change {
-        color: #dc3545;
-    }
-    .ratio-col {
-        color: #007bff;
-    }
+    .summary-table {width:100%; border-collapse:collapse; margin:10px 0; font-size:13px;}
+    .summary-table th, .summary-table td {padding:10px 12px; text-align:left; border:1px solid #ddd;}
+    .summary-table th {background-color:#f8f9fa; font-weight:bold; color:#333;}
+    .summary-table tr:hover {background-color:#f5f5f5;}
+    .positive-change {color:#28a745;}
+    .negative-change {color:#dc3545;}
+    .ratio-col {color:#007bff;}
     </style>
     """, unsafe_allow_html=True)
 
-    # 构建表格HTML
-    html = "<table class='summary-table'>"
-    # 生成表头
-    html += "<tr>"
+    html = "<table class='summary-table'><tr>"
+    # 动态生成表头（包含所有列）
     for col in summary_df.columns:
         html += f"<th>{col}</th>"
     html += "</tr>"
 
-    # 生成表格内容行
+    # 动态生成每一行（每个status对应一行）
     for _, row in summary_df.iterrows():
         html += "<tr>"
         for col, value in row.items():
             cell_class = ""
-            # 为占比列添加样式类
             if "占比(%)" in col:
                 cell_class = "ratio-col"
-            # 为环比变化列添加正负样式
             elif "环比变化" in col:
                 if "(" in str(value):
                     change_pct = value.split('(')[1]
-                    if change_pct.startswith('-'):
-                        cell_class = "negative-change"
-                    else:
-                        cell_class = "positive-change"
-            # 根据样式类生成单元格
-            if cell_class:
-                html += f"<td class='{cell_class}'>{value}</td>"
-            else:
-                html += f"<td>{value}</td>"
+                    cell_class = "negative-change" if change_pct.startswith('-') else "positive-change"
+            html += f"<td class='{cell_class}'>{value}</td>"
         html += "</tr>"
     html += "</table>"
 
