@@ -914,6 +914,150 @@ def render_status_change_table(data, page=1, page_size=30):
     return total_rows
 
 
+# 在现有代码的可视化组件区域添加以下代码
+
+
+
+
+def render_risk_summary_table(summary_df):
+    """在Streamlit中渲染风险汇总表格"""
+    st.subheader("库存风险状态汇总表")
+
+    # 自定义表格样式
+    st.markdown("""
+    <style>
+    .summary-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+    }
+    .summary-table th, .summary-table td {
+        padding: 12px 15px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    .summary-table th {
+        background-color: #f8f9fa;
+        font-weight: bold;
+    }
+    .summary-table tr:hover {
+        background-color: #f5f5f5;
+    }
+    .positive-change {
+        color: #28a745;  /* 绿色：健康状态增加/风险状态减少 */
+    }
+    .negative-change {
+        color: #dc3545;  /* 红色：健康状态减少/风险状态增加 */
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 渲染表格
+    html = "<table class='summary-table'>"
+    # 表头
+    html += "<tr>"
+    for col in summary_df.columns:
+        html += f"<th>{col}</th>"
+    html += "</tr>"
+
+    # 表内容
+    for _, row in summary_df.iterrows():
+        html += "<tr>"
+        for col, value in row.items():
+            if col == "状态判断":
+                # 为状态添加颜色（复用全局STATUS_COLORS，合并状态用默认色）
+                color = STATUS_COLORS.get(value, "#000000")  # 非基础状态用黑色
+                html += f"<td style='color:{color}; font-weight:bold;'>{value}</td>"
+            elif "环比变化" in col:
+                # 标记正负变化（区分状态类型）
+                if '(' in str(value):
+                    change_val = float(value.split()[0])  # 提取变化值
+                    status = row["状态判断"]  # 获取当前行的状态
+
+                    # 健康状态：增加为正；风险状态：减少为正
+                    if status == "健康":
+                        is_positive = change_val >= 0
+                    else:
+                        is_positive = change_val <= 0
+
+                    if is_positive:
+                        html += f"<td class='positive-change'>{value}</td>"
+                    else:
+                        html += f"<td class='negative-change'>{value}</td>"
+                else:
+                    html += f"<td>{value}</td>"
+            else:
+                html += f"<td>{value}</td>"
+        html += "</tr>"
+    html += "</table>"
+
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def create_risk_summary_table(current_data, previous_data):
+    statuses = [
+        "健康",
+        "低滞销风险",
+        "中滞销风险",
+        "高滞销风险",
+        "低滞销风险+中滞销风险+高滞销风险",
+        "中滞销风险+高滞销风险"
+    ]
+    status_mappings = {
+        "健康": ["健康"],
+        "低滞销风险": ["低滞销风险"],
+        "中滞销风险": ["中滞销风险"],
+        "高滞销风险": ["高滞销风险"],
+        "低滞销风险+中滞销风险+高滞销风险": ["低滞销风险", "中滞销风险", "高滞销风险"],
+        "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
+    }
+
+    # 计算当前周期的总MSKU和总滞销库存（用于计算占比）
+    total_current_msku = current_data['MSKU'].nunique() if current_data is not None and not current_data.empty else 0
+    total_current_inventory = current_data[
+        '总滞销库存'].sum() if current_data is not None and not current_data.empty else 0
+
+    summary_data = []
+    for status in statuses:
+        original_statuses = status_mappings[status]
+
+        # 筛选当前周期数据
+        current_filtered = current_data[current_data['状态判断'].isin(original_statuses)] if (
+                    current_data is not None and not current_data.empty) else pd.DataFrame()
+        current_msku = current_filtered['MSKU'].nunique() if not current_filtered.empty else 0
+        current_inventory = current_filtered['总滞销库存'].sum() if not current_filtered.empty else 0
+
+        # 处理上一周期数据
+        if previous_data is not None and not previous_data.empty:
+            prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)]
+            prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
+            prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
+        else:
+            prev_msku = 0
+            prev_inventory = 0
+
+        # 计算环比
+        msku_change = current_msku - prev_msku
+        msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
+        inventory_change = current_inventory - prev_inventory
+        inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
+
+        # 新增：计算占比（当前状态值 / 总值）
+        msku_ratio = (current_msku / total_current_msku * 100) if total_current_msku != 0 else 0
+        inventory_ratio = (current_inventory / total_current_inventory * 100) if total_current_inventory != 0 else 0
+
+        summary_data.append({
+            "状态判断": status,
+            "MSKU数": current_msku,
+            "MSKU占比": f"{msku_ratio:.1f}%",  # 新增：MSKU占比（保留1位小数）
+            "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
+            "总滞销库存数": round(current_inventory, 2),
+            "总滞销库存占比": f"{inventory_ratio:.1f}%",  # 新增：库存占比（保留1位小数）
+            "库存环比变化": f"{round(inventory_change, 2)} ({inventory_change_pct:.1f}%)"
+        })
+
+    return pd.DataFrame(summary_data)
+
 def render_stock_forecast_chart(data, msku):
     """渲染单个MSKU的库存预测图表（从记录时间到2025年12月31日）"""
     if data is None or data.empty:
@@ -1175,8 +1319,8 @@ def main():
         st.subheader("MSKU滞销风险分类：")
         st.markdown("""
         - **健康**：预计总库存用完时间≤2025年12月1日；
-        - **低滞销风险**：预计用完时间比目标时间多出来的天数≤10天；
-        - **中滞销风险**：预计用完时间比目标时间多出来的天数≤20天；
+        - **低滞销风险**：预计用完时间比目标时间多出来的天在0-10天内；
+        - **中滞销风险**：预计用完时间比目标时间多出来的天10-20天内；
         - **高滞销风险**：预计用完时间比目标时间多出来的天数>20天。
         """)
 
@@ -1563,7 +1707,8 @@ def main():
         with col1:
             status_data = pd.DataFrame({
                 "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                "MSKU数": [metrics_data[stat]["current"] for stat in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+                "MSKU数": [metrics_data[stat]["current"] for stat in
+                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
             })
 
             fig_status = px.bar(
@@ -1575,7 +1720,7 @@ def main():
                 title="总体状态分布",
                 text="MSKU数",
                 height=400,
-                custom_data=["状态"]# 保持交互数据
+                custom_data=["状态"]  # 保持交互数据
             )
 
             fig_status.update_traces(
@@ -1609,7 +1754,8 @@ def main():
         with col2:
             pie_data = pd.DataFrame({
                 "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                "MSKU数": [metrics_data[stat]["current"] for stat in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+                "MSKU数": [metrics_data[stat]["current"] for stat in
+                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
             })
 
             total = pie_data["MSKU数"].sum()
@@ -1623,7 +1769,7 @@ def main():
                 color_discrete_map=STATUS_COLORS,
                 title="状态占比分布",
                 height=400,
-                custom_data=["状态"] # 保持交互数据
+                custom_data=["状态"]  # 保持交互数据
             )
 
             fig_pie.update_traces(
@@ -1690,6 +1836,12 @@ def main():
                     # 后续筛选逻辑不变...
                 except (IndexError, KeyError) as e:
                     st.error(f"状态变化图表点击错误: {str(e)}")
+
+        current_week_data = get_week_data(df, selected_date)
+        previous_week_data = get_previous_week_data(df, selected_date)
+        summary_df = create_risk_summary_table(current_week_data, previous_week_data)
+        render_risk_summary_table(summary_df)
+
 
         # 第四个图表：组合图（添加正确的阈值线）
         st.subheader("总体库存消耗天数与滞销库存分布")
@@ -2299,6 +2451,22 @@ def main():
                 )
 
                 st.plotly_chart(fig_change, use_container_width=True)
+            if df is not None and not df.empty and selected_store:
+                # 获取当前选中店铺的当前周期数据（筛选店铺）
+                current_week_full_data = get_week_data(df, selected_date)
+                current_week_store_data = current_week_full_data[
+                    current_week_full_data["店铺"] == selected_store] if current_week_full_data is not None else None
+
+                # 获取当前选中店铺的上一周期数据（筛选店铺）
+                previous_week_full_data = get_previous_week_data(df, selected_date)
+                previous_week_store_data = previous_week_full_data[
+                    previous_week_full_data["店铺"] == selected_store] if previous_week_full_data is not None else None
+
+                # 创建店铺级别的汇总表数据
+                store_summary_df = create_risk_summary_table(current_week_store_data, previous_week_store_data)
+
+                # 渲染店铺级别的汇总表
+                render_risk_summary_table(store_summary_df)
 
             # 2. 第二部分：下方组合图（修复图例方向参数）
             st.subheader(f"{selected_store} 库存消耗天数分布（MSKU数+总滞销库存）")
