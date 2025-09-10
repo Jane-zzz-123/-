@@ -2451,6 +2451,22 @@ def main():
                 )
 
                 st.plotly_chart(fig_change, use_container_width=True)
+            if df is not None and not df.empty and selected_store:
+                # 获取当前选中店铺的当前周期数据（筛选店铺）
+                current_week_full_data = get_week_data(df, selected_date)
+                current_week_store_data = current_week_full_data[
+                    current_week_full_data["店铺"] == selected_store] if current_week_full_data is not None else None
+
+                # 获取当前选中店铺的上一周期数据（筛选店铺）
+                previous_week_full_data = get_previous_week_data(df, selected_date)
+                previous_week_store_data = previous_week_full_data[
+                    previous_week_full_data["店铺"] == selected_store] if previous_week_full_data is not None else None
+
+                # 创建店铺级别的汇总表数据
+                store_summary_df = create_risk_summary_table(current_week_store_data, previous_week_store_data)
+
+                # 渲染店铺级别的汇总表
+                render_risk_summary_table(store_summary_df)
 
             # 2. 第二部分：下方组合图（修复图例方向参数）
             st.subheader(f"{selected_store} 库存消耗天数分布（MSKU数+总滞销库存）")
