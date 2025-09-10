@@ -916,6 +916,17 @@ def render_status_change_table(data, page=1, page_size=30):
 
 # ========== 第一步：将函数移到代码块外部，确保全局可调用 ==========
 def create_risk_summary_table(current_data, previous_data):
+    """
+    创建库存风险状态汇总表格，包含合并状态判断
+
+    参数:
+    current_data: 当前周期的数据DataFrame
+    previous_data: 上一周期（上周）的数据DataFrame
+
+    返回:
+    格式化的汇总表格DataFrame
+    """
+    # 定义所有需要展示的状态，包括合并状态
     statuses = [
         "健康",
         "低滞销风险",
@@ -924,6 +935,8 @@ def create_risk_summary_table(current_data, previous_data):
         "低滞销风险+中滞销风险+高滞销风险",
         "中滞销风险+高滞销风险"
     ]
+
+    # 定义每个状态对应的原始状态列表
     status_mappings = {
         "健康": ["健康"],
         "低滞销风险": ["低滞销风险"],
@@ -932,122 +945,107 @@ def create_risk_summary_table(current_data, previous_data):
         "低滞销风险+中滞销风险+高滞销风险": ["低滞销风险", "中滞销风险", "高滞销风险"],
         "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
     }
+
+    # 初始化结果列表
     summary_data = []
 
-    # 计算全量数据（用于占比，提前处理空值）
-    total_current_msku = current_data['MSKU'].nunique() if not current_data.empty else 0
-    total_current_inventory = current_data['总滞销库存'].sum() if not current_data.empty else 0
-
     for status in statuses:
+        # 获取当前状态对应的原始状态列表
         original_statuses = status_mappings[status]
-        # 1. 筛选当前状态数据（强制转字符串，避免类型不匹配）
-        current_filtered = current_data[
-            current_data['状态判断'].astype(str).isin([str(s) for s in original_statuses])
-        ]
 
-        # 2. 处理空筛选结果（避免后续计算报错）
-        current_msku = current_filtered['MSKU'].nunique() if not current_filtered.empty else 0
-        current_inventory = current_filtered['总滞销库存'].sum() if not current_filtered.empty else 0.0
+        # 计算当前周期数据
+        current_filtered = current_data[current_data['状态判断'].isin(original_statuses)]
+        current_msku = current_filtered['MSKU'].nunique()
+        current_inventory = current_filtered['滞销库存数'].sum()
 
-        # 3. 计算占比（增强鲁棒性：全量为0时占比直接设0）
-        msku_ratio = round((current_msku / total_current_msku * 100), 2) if total_current_msku != 0 else 0
-        inventory_ratio = round((current_inventory / total_current_inventory * 100),
-                                2) if total_current_inventory != 0 else 0
+        # 计算上一周期数据
+        prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)]
+        prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
+        prev_inventory = prev_filtered['滞销库存数'].sum() if not prev_filtered.empty else 0
 
-        # 4. 筛选上周数据（同样处理空值）
-        prev_msku = 0
-        prev_inventory = 0.0
-        if previous_data is not None and not previous_data.empty:
-            prev_filtered = previous_data[
-                previous_data['状态判断'].astype(str).isin([str(s) for s in original_statuses])
-            ]
-            prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
-            prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0.0
-
-        # 5. 计算环比变化（分母为0时设为0%）
+        # 计算与上周的对比
         msku_change = current_msku - prev_msku
-        msku_change_pct = round((msku_change / prev_msku * 100), 1) if prev_msku != 0 else 0
+        msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
 
         inventory_change = current_inventory - prev_inventory
-        inventory_change_pct = round((inventory_change / prev_inventory * 100), 1) if prev_inventory != 0 else 0
+        inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
 
-        # 6. 生成一行数据（确保所有值为基础类型）
+        # 添加到结果列表
         summary_data.append({
-            "状态判断": str(status),
-            "MSKU数": int(current_msku),
-            "MSKU占比(%)": float(msku_ratio),
-            "MSKU环比变化": f"{int(msku_change)} ({float(msku_change_pct)}%)",
-            "总滞销库存数": float(current_inventory),
-            "总滞销库存占比(%)": float(inventory_ratio),
-            "库存环比变化": f"{float(inventory_change)} ({float(inventory_change_pct)}%)"
+            "状态判断": status,
+            "MSKU数": current_msku,
+            "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
+            "总滞销库存数": current_inventory,
+            "库存环比变化": f"{inventory_change} ({inventory_change_pct:.1f}%)"
         })
 
-    return pd.DataFrame(summary_data)
+    # 转换为DataFrame
+    summary_df = pd.DataFrame(summary_data)
+
+    return summary_df
 
 
 def render_risk_summary_table(summary_df):
+    """在Streamlit中渲染风险汇总表格"""
     st.subheader("库存风险状态汇总表")
+
+    # 自定义表格样式
     st.markdown("""
     <style>
     .summary-table {
         width: 100%;
         border-collapse: collapse;
-        margin: 10px 0;
-        font-size: 13px;
-        table-layout: fixed;  /* 固定列宽，避免内容撑开 */
+        margin: 20px 0;
     }
     .summary-table th, .summary-table td {
-        padding: 10px 12px;
+        padding: 12px 15px;
         text-align: left;
-        border: 1px solid #ddd;
-        word-wrap: break-word;  /* 长文本换行 */
+        border-bottom: 1px solid #ddd;
     }
     .summary-table th {
         background-color: #f8f9fa;
         font-weight: bold;
-        color: #333;
     }
     .summary-table tr:hover {
         background-color: #f5f5f5;
     }
-    .positive-change {color: #28a745;}
-    .negative-change {color: #dc3545;}
-    .ratio-col {color: #007bff;}
+    .positive-change {
+        color: #28a745;
+    }
+    .negative-change {
+        color: #dc3545;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-    # 构建表格HTML（增加异常值处理）
-    html = "<table class='summary-table'><tr>"
+    # 渲染表格
+    html = "<table class='summary-table'>"
     # 表头
+    html += "<tr>"
     for col in summary_df.columns:
-        # 转义特殊字符
-        safe_col = str(col).replace("+", "&#43;")  # 转义"+"为HTML实体
-        html += f"<th>{safe_col}</th>"
+        html += f"<th>{col}</th>"
     html += "</tr>"
 
     # 表内容
     for _, row in summary_df.iterrows():
         html += "<tr>"
         for col, value in row.items():
-            # 处理空值或异常值
-            safe_value = str(value) if value is not None else "-"
-            # 转义特殊字符
-            safe_value = safe_value.replace("+", "&#43;").replace("<", "&lt;").replace(">", "&gt;")
-
-            cell_class = ""
-            if "占比(%)" in col:
-                cell_class = "ratio-col"
-            elif "环比变化" in col:
-                if "(" in safe_value:
-                    change_pct = safe_value.split('(')[1]
-                    cell_class = "negative-change" if change_pct.startswith('-') else "positive-change"
-
-            html += f"<td class='{cell_class}'>{safe_value}</td>"
+            if "环比变化" in col:
+                # 标记正负变化
+                if '(' in str(value):
+                    change_pct = value.split('(')[1]
+                    if change_pct.startswith('-'):
+                        html += f"<td class='negative-change'>{value}</td>"
+                    else:
+                        html += f"<td class='positive-change'>{value}</td>"
+                else:
+                    html += f"<td>{value}</td>"
+            else:
+                html += f"<td>{value}</td>"
         html += "</tr>"
     html += "</table>"
 
     st.markdown(html, unsafe_allow_html=True)
-    st.markdown("<p style='font-size:12px; color:#666;'>注：占比=当前状态数据/全量数据×100%</p>", unsafe_allow_html=True)
 
 
 def render_stock_forecast_chart(data, msku):
@@ -1692,259 +1690,194 @@ def main():
                 STATUS_COLORS["高滞销风险"]
             )
 
-        # 6. 图表部分：调整为「上层两列图表 + 下层两列（图表+表格）」布局
-        # ------------------------------
-        # 上层：两列布局（放原col1、col2的图表）
-        col_upper1, col_upper2 = st.columns(2)
+            # 6. 图表部分
+            col1, col2, col3 = st.columns(3)
 
-        # 上层第一列：原col1的「总体状态分布」柱状图
-        with col_upper1:
-            status_data = pd.DataFrame({
-                "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                "MSKU数": [metrics_data[stat]["current"] for stat in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-            })
+            # 第一个图表：总体状态分布
+            with col1:
+                status_data = pd.DataFrame({
+                    "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
+                    "MSKU数": [metrics_data[stat]["current"] for stat in
+                               ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+                })
 
-            fig_status = px.bar(
-                status_data,
-                x="状态",
-                y="MSKU数",
-                color="状态",
-                color_discrete_map=STATUS_COLORS,
-                title="总体状态分布",
-                text="MSKU数",
-                height=400,
-                custom_data=["状态"]  # 保持交互数据
-            )
+                fig_status = px.bar(
+                    status_data,
+                    x="状态",
+                    y="MSKU数",
+                    color="状态",
+                    color_discrete_map=STATUS_COLORS,
+                    title="总体状态分布",
+                    text="MSKU数",
+                    height=400,
+                    custom_data=["状态"]  # 保持交互数据
+                )
 
-            fig_status.update_traces(
-                textposition="outside",
-                textfont=dict(size=12, weight="bold"),
-                marker=dict(line=dict(color="#ffffff", width=1))
-            )
+                fig_status.update_traces(
+                    textposition="outside",
+                    textfont=dict(size=12, weight="bold"),
+                    marker=dict(line=dict(color="#ffffff", width=1))
+                )
 
-            fig_status.update_layout(
-                xaxis_title="风险状态",
-                yaxis_title="MSKU数量",
-                showlegend=True,
-                plot_bgcolor="#f8f9fa",
-                margin=dict(t=50, b=20, l=20, r=20)
-            )
+                fig_status.update_layout(
+                    xaxis_title="风险状态",
+                    yaxis_title="MSKU数量",
+                    showlegend=True,
+                    plot_bgcolor="#f8f9fa",
+                    margin=dict(t=50, b=20, l=20, r=20)
+                )
 
-            st.plotly_chart(fig_status, use_container_width=True, config={'displayModeBar': True})
-            # 保留原点击交互逻辑
-            status_click = st.session_state.get('fig_status_click', None)
-            if status_click:
-                try:
-                    status = status_click['points'][0]['customdata'][0]
-                    st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
-                    st.success(f"已筛选：{status}")
-                except (IndexError, KeyError) as e:
-                    st.error(f"状态分布图表点击错误: {str(e)}")
+                # 关键：移除 return_fig_objs=True，使用默认配置
+                st.plotly_chart(fig_status, use_container_width=True, config={'displayModeBar': True})
+                # 获取点击数据（Streamlit 1.21+ 支持）
+                status_click = st.session_state.get('fig_status_click', None)
+                status_click = st.session_state.get('fig_status_click', None)
+                if status_click:
+                    try:
+                        status = status_click['points'][0]['customdata'][0]
+                        st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
+                        st.success(f"已筛选：{status}")
+                    except (IndexError, KeyError) as e:
+                        st.error(f"状态分布图表点击错误: {str(e)}")
 
-        # 上层第二列：原col2的「状态占比分布」饼图
-        with col_upper2:
-            pie_data = pd.DataFrame({
-                "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                "MSKU数": [metrics_data[stat]["current"] for stat in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-            })
+            # 第二个图表：状态判断饼图
+            with col2:
+                pie_data = pd.DataFrame({
+                    "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
+                    "MSKU数": [metrics_data[stat]["current"] for stat in
+                               ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+                })
 
-            total = pie_data["MSKU数"].sum()
-            pie_data["占比"] = pie_data["MSKU数"].apply(lambda x: f"{(x / total * 100):.2f}%")
+                total = pie_data["MSKU数"].sum()
+                pie_data["占比"] = pie_data["MSKU数"].apply(lambda x: f"{(x / total * 100):.2f}%")
 
-            fig_pie = px.pie(
-                pie_data,
-                values="MSKU数",
-                names="状态",
-                color="状态",
-                color_discrete_map=STATUS_COLORS,
-                title="状态占比分布",
-                height=400,
-                custom_data=["状态"]  # 保持交互数据
-            )
+                fig_pie = px.pie(
+                    pie_data,
+                    values="MSKU数",
+                    names="状态",
+                    color="状态",
+                    color_discrete_map=STATUS_COLORS,
+                    title="状态占比分布",
+                    height=400,
+                    custom_data=["状态"]  # 保持交互数据
+                )
 
-            fig_pie.update_traces(
-                textinfo="label+value+percent",
-                textposition="inside",
-                hole=0.3
-            )
+                fig_pie.update_traces(
+                    textinfo="label+value+percent",
+                    textposition="inside",
+                    hole=0.3
+                )
 
-            fig_pie.update_layout(
-                plot_bgcolor="#f8f9fa",
-                margin=dict(t=50, b=20, l=20, r=20)
-            )
+                fig_pie.update_layout(
+                    plot_bgcolor="#f8f9fa",
+                    margin=dict(t=50, b=20, l=20, r=20)
+                )
 
-            st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': True})
-            # 保留原点击交互逻辑
-            pie_click = st.session_state.get('fig_pie_click', None)
-            if pie_click:
-                try:
-                    status = pie_click['points'][0]['customdata'][0]
-                    st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
-                    st.success(f"已筛选：{status}")
-                except (IndexError, KeyError) as e:
-                    st.error(f"饼图点击错误: {str(e)}")
+                # 关键：移除 return_fig_objs=True
+                st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': True})
+                pie_click = st.session_state.get('fig_pie_click', None)
+                pie_click = st.session_state.get('fig_pie_click', None)
+                if pie_click:
+                    try:
+                        status = pie_click['points'][0]['customdata'][0]
+                        st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
+                        st.success(f"已筛选：{status}")
+                    except (IndexError, KeyError) as e:
+                        st.error(f"饼图点击错误: {str(e)}")
 
-        # ------------------------------
-        # 下层：两列布局（左：原col3图表，右：新汇总表格）
-        col_lower1, col_lower2 = st.columns(2)
+            # 第三个图表：环比上周库存滞销情况变化柱状图（按变好/不变/变差着色）
+            with col3:
+                # 准备状态变化数据
+                change_types = ["改善", "不变", "恶化"]
+                change_colors = {"改善": "#2E8B57", "不变": "#1E90FF", "恶化": "#DC143C"}
 
-        # 下层第一列：原col3的「环比上周库存滞销情况变化」堆叠柱状图
-        with col_lower1:
-            # 准备状态变化数据（复用原逻辑）
-            change_types = ["改善", "不变", "恶化"]
-            change_colors = {"改善": "#2E8B57", "不变": "#1E90FF", "恶化": "#DC143C"}
+                # 创建堆叠柱状图数据
+                fig_change = go.Figure()
 
-            fig_change = go.Figure()
-            for change_type in change_types:
-                fig_change.add_trace(go.Bar(
-                    x=["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                    y=[status_change_counts[status][change_type] for status in
-                       ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]],
-                    name=change_type,
-                    marker_color=change_colors[change_type],
-                    customdata=[[status, change_type] for status in
-                                ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-                ))
+                for change_type in change_types:
+                    fig_change.add_trace(go.Bar(
+                        x=["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
+                        y=[status_change_counts[status][change_type] for status in
+                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]],
+                        name=change_type,
+                        marker_color=change_colors[change_type],
+                        customdata=[[status, change_type] for status in
+                                    ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
+                    ))
 
-            fig_change.update_layout(
-                barmode='stack',
-                title="环比上周库存滞销情况变化",
-                xaxis_title="风险状态",
-                yaxis_title="MSKU数量",
-                plot_bgcolor="#f8f9fa",
-                margin=dict(t=50, b=20, l=20, r=20),
-                height=400
-            )
+                fig_change.update_layout(
+                    barmode='stack',
+                    title="环比上周库存滞销情况变化",
+                    xaxis_title="风险状态",
+                    yaxis_title="MSKU数量",
+                    plot_bgcolor="#f8f9fa",
+                    margin=dict(t=50, b=20, l=20, r=20),
+                    height=400
+                )
 
-            st.plotly_chart(fig_change, use_container_width=True, config={'displayModeBar': True})
-            # 保留原点击交互逻辑
-            change_click = st.session_state.get('fig_change_click', None)
-            if change_click:
-                try:
-                    status = change_click['points'][0]['customdata'][0]
-                    change_type = change_click['points'][0]['customdata'][1]
-                    # 若需保留原筛选逻辑，可在此补充
-                except (IndexError, KeyError) as e:
-                    st.error(f"状态变化图表点击错误: {str(e)}")
+                # 关键：移除 return_fig_objs=True
+                st.plotly_chart(fig_change, use_container_width=True, config={'displayModeBar': True})
+                change_click = st.session_state.get('fig_change_click', None)
+                change_click = st.session_state.get('fig_change_click', None)
+                if change_click:
+                    try:
+                        status = change_click['points'][0]['customdata'][0]  # 从修复后的 customdata 获取
+                        change_type = change_click['points'][0]['customdata'][1]
+                        # 后续筛选逻辑不变...
+                    except (IndexError, KeyError) as e:
+                        st.error(f"状态变化图表点击错误: {str(e)}")
 
-        # 下层第二列：新增的「库存风险状态汇总表」（调用你之前定义的两个函数）
-        with col_lower2:
-            # 1. 修复后的create_risk_summary_table函数（新增占比计算逻辑）
-            def create_risk_summary_table(current_data, previous_data):
-                statuses = [
-                    "健康",
-                    "低滞销风险",
-                    "中滞销风险",
-                    "高滞销风险",
-                    "低滞销风险+中滞销风险+高滞销风险",
-                    "中滞销风险+高滞销风险"
-                ]
-                status_mappings = {
-                    "健康": ["健康"],
-                    "低滞销风险": ["低滞销风险"],
-                    "中滞销风险": ["中滞销风险"],
-                    "高滞销风险": ["高滞销风险"],
-                    "低滞销风险+中滞销风险+高滞销风险": ["低滞销风险", "中滞销风险", "高滞销风险"],
-                    "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
-                }
-                summary_data = []
+        # 1. 调用create_risk_summary_table生成表格数据（注意：原数据中滞销库存列名为「总滞销库存」，需与函数内一致）
+        # （关键修正：原代码函数内用「滞销库存数」，需改为实际列名「总滞销库存」，避免数据为空）
+        def create_risk_summary_table(current_data, previous_data):
+            statuses = [
+                "健康",
+                "低滞销风险",
+                "中滞销风险",
+                "高滞销风险",
+                "低滞销风险+中滞销风险+高滞销风险",
+                "中滞销风险+高滞销风险"
+            ]
+            status_mappings = {
+                "健康": ["健康"],
+                "低滞销风险": ["低滞销风险"],
+                "中滞销风险": ["中滞销风险"],
+                "高滞销风险": ["高滞销风险"],
+                "低滞销风险+中滞销风险+高滞销风险": ["低滞销风险", "中滞销风险", "高滞销风险"],
+                "中滞销风险+高滞销风险": ["中滞销风险", "高滞销风险"]
+            }
+            summary_data = []
+            for status in statuses:
+                original_statuses = status_mappings[status]
+                # 修正：使用实际列名「总滞销库存」
+                current_filtered = current_data[current_data['状态判断'].isin(original_statuses)]
+                current_msku = current_filtered['MSKU'].nunique()
+                current_inventory = current_filtered['总滞销库存'].sum()  # 改为「总滞销库存」
 
-                # 关键新增：计算当前周期的总MSKU数和总滞销库存数（用于算占比）
-                total_current_msku = current_data['MSKU'].nunique()  # 全量MSKU总数
-                total_current_inventory = current_data['总滞销库存'].sum()  # 全量滞销库存总数
-
-                for status in statuses:
-                    original_statuses = status_mappings[status]
-                    # 1. 计算当前状态的基础数据
-                    current_filtered = current_data[current_data['状态判断'].isin(original_statuses)]
-                    current_msku = current_filtered['MSKU'].nunique()
-                    current_inventory = current_filtered['总滞销库存'].sum()
-
-                    # 2. 关键新增：计算占比（避免除以0，无数据时占比为0%）
-                    msku_ratio = (current_msku / total_current_msku * 100) if total_current_msku != 0 else 0
-                    inventory_ratio = (
-                                current_inventory / total_current_inventory * 100) if total_current_inventory != 0 else 0
-
-                    # 3. 计算上周数据（环比用）
-                    prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)] if (
+                prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)] if (
                             previous_data is not None and not previous_data.empty) else pd.DataFrame()
-                    prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
-                    prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
+                prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
+                prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0  # 改为「总滞销库存」
 
-                    # 4. 计算环比变化
-                    msku_change = current_msku - prev_msku
-                    msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
-                    inventory_change = current_inventory - prev_inventory
-                    inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
+                msku_change = current_msku - prev_msku
+                msku_change_pct = (msku_change / prev_msku * 100) if prev_msku != 0 else 0
+                inventory_change = current_inventory - prev_inventory
+                inventory_change_pct = (inventory_change / prev_inventory * 100) if prev_inventory != 0 else 0
 
-                    # 5. 关键新增：将占比字段加入结果（必须添加，否则表格无此列）
-                    summary_data.append({
-                        "状态判断": status,
-                        "MSKU数": current_msku,
-                        "MSKU占比(%)": round(msku_ratio, 2),  # 新增占比列1
-                        "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
-                        "总滞销库存数": round(current_inventory, 2),
-                        "总滞销库存占比(%)": round(inventory_ratio, 2),  # 新增占比列2
-                        "库存环比变化": f"{round(inventory_change, 2)} ({inventory_change_pct:.1f}%)"
-                    })
-                return pd.DataFrame(summary_data)
+                summary_data.append({
+                    "状态判断": status,
+                    "MSKU数": current_msku,
+                    "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
+                    "总滞销库存数": round(current_inventory, 2),  # 保留2位小数，更规范
+                    "库存环比变化": f"{round(inventory_change, 2)} ({inventory_change_pct:.1f}%)"  # 保留2位小数
+                })
+            return pd.DataFrame(summary_data)
 
-            # 2. 生成表格数据（此时数据已包含占比字段）
-            summary_df = create_risk_summary_table(current_data, prev_data)
+        # 2. 生成表格数据（传入当前周和上周数据）
+        summary_df = create_risk_summary_table(current_data, prev_data)
 
-            # （可选调试：打印列名确认占比列存在，调试完可删除）
-            # st.write("当前表格列名：", summary_df.columns.tolist())
-
-            # 3. 调用渲染函数（需确保render_risk_summary_table是优化后的版本）
-            # 【重要】这里必须使用支持占比列渲染的render_risk_summary_table函数，代码如下：
-            def render_risk_summary_table(summary_df):
-                st.subheader("库存风险状态汇总表")
-                # 自定义表格样式（适配占比列）
-                st.markdown("""
-                <style>
-                .summary-table {width:100%; border-collapse:collapse; margin:10px 0; font-size:13px;}
-                .summary-table th, .summary-table td {padding:10px 12px; text-align:left; border-bottom:1px solid #ddd;}
-                .summary-table th {background-color:#f8f9fa; font-weight:bold; color:#333;}
-                .summary-table tr:hover {background-color:#f5f5f5;}
-                .positive-change {color:#2E8B57;}
-                .negative-change {color:#DC143C;}
-                .ratio-col {color:#4169E1; font-weight:500;} /* 占比列蓝色突出 */
-                </style>
-                """, unsafe_allow_html=True)
-
-                # 渲染表格（动态遍历所有列，包括新增的占比列）
-                html = "<table class='summary-table'><tr>"
-                # 动态生成表头（确保占比列被包含）
-                for col in summary_df.columns:
-                    html += f"<th>{col}</th>"
-                html += "</tr>"
-
-                # 动态生成表内容（对占比列和环比列着色）
-                for _, row in summary_df.iterrows():
-                    html += "<tr>"
-                    for col, value in row.items():
-                        if "占比(%)" in col:
-                            html += f"<td class='ratio-col'>{value}%</td>"  # 占比列蓝色
-                        elif "环比变化" in col:
-                            if '(' in str(value):
-                                change_pct = value.split('(')[1]
-                                if change_pct.startswith('-'):
-                                    html += f"<td class='negative-change'>{value}</td>"
-                                else:
-                                    html += f"<td class='positive-change'>{value}</td>"
-                            else:
-                                html += f"<td>{value}</td>"
-                        else:
-                            html += f"<td>{value}</td>"
-                    html += "</tr></table>"
-
-                st.markdown(html, unsafe_allow_html=True)
-                # 数据说明
-                st.markdown("<p style='font-size:12px; color:#666;'>注：占比=当前状态数据/全量数据×100%</p>",
-                            unsafe_allow_html=True)
-
-            # 执行渲染（此时表格会显示占比列）
-            render_risk_summary_table(summary_df)
+        # 3. 调用render_risk_summary_table渲染表格
+        render_risk_summary_table(summary_df)
         # 第四个图表：组合图（添加正确的阈值线）
         st.subheader("总体库存消耗天数与滞销库存分布")
 
