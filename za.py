@@ -1003,76 +1003,75 @@ def create_risk_summary_table(current_data, previous_data):
 
 
 def render_risk_summary_table(summary_df):
-    """在Streamlit中渲染优化后的风险汇总表格（含占比字段）"""
+    """在Streamlit中渲染风险汇总表格，确保表格格式正确"""
     st.subheader("库存风险状态汇总表")
 
-    # 自定义表格样式（调整列宽适配新增字段，优化可读性）
+    # 自定义表格样式
     st.markdown("""
     <style>
     .summary-table {
         width: 100%;
         border-collapse: collapse;
-        margin: 10px 0;
-        font-size: 13px;  /* 微调字体大小，避免列过宽 */
+        margin: 20px 0;
     }
     .summary-table th, .summary-table td {
-        padding: 10px 12px;  /* 调整内边距，平衡列宽 */
+        padding: 12px 15px;
         text-align: left;
-        border-bottom: 1px solid #ddd;
+        border: 1px solid #ddd;
     }
     .summary-table th {
         background-color: #f8f9fa;
         font-weight: bold;
-        color: #333;
     }
     .summary-table tr:hover {
         background-color: #f5f5f5;
     }
-    /* 正负变化颜色标记 */
-    .positive-change { color: #2E8B57; }  /* 绿色：改善/增长 */
-    .negative-change { color: #DC143C; }  /* 红色：恶化/下降 */
-    /* 占比列特殊标记（突出显示） */
-    .ratio-col { color: #4169E1; font-weight: 500; }  /* 蓝色：占比数据 */
+    .positive-change {
+        color: #28a745;
+    }
+    .negative-change {
+        color: #dc3545;
+    }
+    .ratio-col {
+        color: #007bff;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-    # 渲染表格（含新增的占比列）
+    # 构建表格HTML
     html = "<table class='summary-table'>"
-    # 1. 表头（包含新增的“MSKU占比(%)”和“总滞销库存占比(%)”）
+    # 生成表头
     html += "<tr>"
     for col in summary_df.columns:
         html += f"<th>{col}</th>"
     html += "</tr>"
 
-    # 2. 表内容（对占比列和环比列单独着色）
+    # 生成表格内容行
     for _, row in summary_df.iterrows():
         html += "<tr>"
         for col, value in row.items():
-            # 处理占比列（蓝色突出）
+            cell_class = ""
+            # 为占比列添加样式类
             if "占比(%)" in col:
-                html += f"<td class='ratio-col'>{value}%</td>"
-            # 处理环比列（正负色区分）
+                cell_class = "ratio-col"
+            # 为环比变化列添加正负样式
             elif "环比变化" in col:
-                if '(' in str(value):
+                if "(" in str(value):
                     change_pct = value.split('(')[1]
                     if change_pct.startswith('-'):
-                        html += f"<td class='negative-change'>{value}</td>"
+                        cell_class = "negative-change"
                     else:
-                        html += f"<td class='positive-change'>{value}</td>"
-                else:
-                    html += f"<td>{value}</td>"
-            # 普通列（默认样式）
+                        cell_class = "positive-change"
+            # 根据样式类生成单元格
+            if cell_class:
+                html += f"<td class='{cell_class}'>{value}</td>"
             else:
                 html += f"<td>{value}</td>"
         html += "</tr>"
     html += "</table>"
 
     st.markdown(html, unsafe_allow_html=True)
-
-    # 可选：添加数据说明（帮助用户理解占比含义）
-    st.markdown(
-        "<p style='font-size:12px; color:#666;'>注：MSKU占比=当前状态MSKU数/总MSKU数；总滞销库存占比=当前状态库存/总滞销库存数</p>",
-        unsafe_allow_html=True)
+    st.markdown("<p style='font-size:12px; color:#666;'>注：占比=当前状态数据/全量数据×100%</p>", unsafe_allow_html=True)
 
 
 def render_stock_forecast_chart(data, msku):
