@@ -9,6 +9,74 @@ from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 from math import ceil
 
+
+# ------------------------------
+# 新增：用户认证与权限管理
+# ------------------------------
+def check_credentials():
+    """验证用户密码并返回用户权限（负责的店铺），用户名改为下拉框选择"""
+    # 用户-密码-权限映射（建议实际使用时放在secrets中）
+    USER_PERMISSIONS = {
+        "黄怡": ("syc-huangyi123", ["思业成-US"]),  # 用户1能看的店铺
+        "泽恒": ("dx-zeheng123", ["定行-US"]),  # 用户2能看的店铺
+        "小娇": ("pt and ys-xiaojiao", ["拼途-US","艺胜-US"]),  # 用户3能看的店铺
+        "楷纯": ("zy and cr-kaichun", ["争艳-US","辰瑞-US"]),  # 用户4能看的店铺
+        "淑谊": ("sx and jy-shuyi", ["势兴-US","进益-US"]),  # 用户5能看的店铺
+        "佰英": ("cq-baiying123", ["创奇-US"]),  # 用户6能看的店铺
+        "李珊": ("dm-lishan123", ["大卖-US"]),  # 用户7能看的店铺
+        "admin": ("admin1234", None)  # 管理员能看所有店铺
+    }
+
+    # 获取所有用户名作为下拉选项
+    all_users = list(USER_PERMISSIONS.keys())
+
+    def verify():
+        # 从会话状态获取选择的用户名和输入的密码
+        username = st.session_state.get("selected_user", "")
+        password = st.session_state.get("password", "")
+
+        if username in USER_PERMISSIONS:
+            stored_pwd, stores = USER_PERMISSIONS[username]
+            if password == stored_pwd:
+                st.session_state["authenticated"] = True
+                st.session_state["allowed_stores"] = stores  # 保存用户可访问的店铺
+                del st.session_state["password"]  # 清除密码
+            else:
+                st.session_state["authenticated"] = False
+        else:
+            st.session_state["authenticated"] = False
+
+    # 未认证状态：显示登录表单（下拉框选择用户名）
+    if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
+        st.title("用户登录")
+
+        # 用户名下拉框（而非输入框）
+        st.selectbox(
+            "请选择用户名",
+            options=all_users,
+            key="selected_user",
+            on_change=verify  # 选择变化时触发验证
+        )
+
+        # 密码输入框
+        st.text_input(
+            "请输入密码",
+            type="password",
+            key="password",
+            on_change=verify  # 输入密码时触发验证
+        )
+
+        # 显示错误信息
+        if "authenticated" in st.session_state and not st.session_state["authenticated"]:
+            st.error("密码错误，请重新输入")
+        return False
+    return True
+
+
+# 验证不通过则终止
+if not check_credentials():
+    st.stop()
+
 # 全局配置
 st.set_page_config(page_title="年份品滞销风险分析仪表盘", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""
@@ -1350,6 +1418,17 @@ def main():
 
             # 将读取到的数据赋值给df变量
             df = current_data  # 关键：把current_data的数据传递给df
+            # ------------------------------
+            # 新增：根据用户权限筛选店铺
+            # ------------------------------
+            allowed_stores = st.session_state.get("allowed_stores")
+            if allowed_stores is not None:  # 非管理员（有店铺限制）
+                # 筛选df中"店铺"列属于allowed_stores的行
+                df = df[df["店铺"].isin(allowed_stores)].copy()
+                # 检查筛选后是否有数据
+                if df.empty:
+                    st.error(f"您有权限的店铺（{', '.join(allowed_stores)}）没有数据")
+                    st.stop()  # 无数据则停止运行
 
             st.success("数据加载成功！")
         except Exception as e:
