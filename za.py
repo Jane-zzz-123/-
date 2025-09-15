@@ -14,16 +14,25 @@ from math import ceil
 # 新增：用户认证与权限管理
 # ------------------------------
 def check_credentials():
-    """验证用户密码并返回用户权限（负责的店铺）"""
+    """验证用户密码并返回用户权限（负责的店铺），用户名改为下拉框选择"""
     # 用户-密码-权限映射（建议实际使用时放在secrets中）
     USER_PERMISSIONS = {
-        "user1": ("123456", ["争艳-US", "势兴-US"]),  # 用户1能看A和B
-        "user2": ("123456789", ["大卖-US"]),  # 用户2只能看C
-        "admin": ("admin123", None)  # 管理员能看所有店铺（None表示全部）
+        "黄怡": ("syc-huangyi123", ["思业成-US"]),  # 用户1能看的店铺
+        "泽恒": ("dx-zeheng123", ["定行-US"]),  # 用户2能看的店铺
+        "小娇": ("pt and ys-xiaojiao", ["拼途-US","艺胜-US"]),  # 用户3能看的店铺
+        "楷纯": ("zy and cr-kaichun", ["争艳-US","辰瑞-US"]),  # 用户4能看的店铺
+        "淑谊": ("sx and jy-shuyi", ["势兴-US","进益-US"]),  # 用户5能看的店铺
+        "佰英": ("cq-baiying123", ["创奇-US"]),  # 用户6能看的店铺
+        "李珊": ("dm-lishan123", ["大卖-US"]),  # 用户7能看的店铺
+        "admin": ("admin1234", None)  # 管理员能看所有店铺
     }
 
+    # 获取所有用户名作为下拉选项
+    all_users = list(USER_PERMISSIONS.keys())
+
     def verify():
-        username = st.session_state.get("username", "")
+        # 从会话状态获取选择的用户名和输入的密码
+        username = st.session_state.get("selected_user", "")
         password = st.session_state.get("password", "")
 
         if username in USER_PERMISSIONS:
@@ -31,22 +40,35 @@ def check_credentials():
             if password == stored_pwd:
                 st.session_state["authenticated"] = True
                 st.session_state["allowed_stores"] = stores  # 保存用户可访问的店铺
-                del st.session_state["username"]  # 清除输入
-                del st.session_state["password"]
+                del st.session_state["password"]  # 清除密码
             else:
                 st.session_state["authenticated"] = False
         else:
             st.session_state["authenticated"] = False
 
-    # 未认证状态：显示登录表单
+    # 未认证状态：显示登录表单（下拉框选择用户名）
     if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
         st.title("用户登录")
-        st.text_input("用户名", key="username", on_change=verify)
-        st.text_input("密码", type="password", key="password", on_change=verify)
+
+        # 用户名下拉框（而非输入框）
+        st.selectbox(
+            "请选择用户名",
+            options=all_users,
+            key="selected_user",
+            on_change=verify  # 选择变化时触发验证
+        )
+
+        # 密码输入框
+        st.text_input(
+            "请输入密码",
+            type="password",
+            key="password",
+            on_change=verify  # 输入密码时触发验证
+        )
 
         # 显示错误信息
         if "authenticated" in st.session_state and not st.session_state["authenticated"]:
-            st.error("用户名或密码错误")
+            st.error("密码错误，请重新输入")
         return False
     return True
 
