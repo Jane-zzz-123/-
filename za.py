@@ -8,7 +8,52 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 from math import ceil
-import streamlit_authenticator as stauth
+
+
+# ------------------------------
+# 新增：用户认证与权限管理
+# ------------------------------
+def check_credentials():
+    """验证用户密码并返回用户权限（负责的店铺）"""
+    # 用户-密码-权限映射（建议实际使用时放在secrets中）
+    USER_PERMISSIONS = {
+        "user1": ("123456", ["争艳-US", "势兴-US"]),  # 用户1能看A和B
+        "user2": ("123456789", ["大卖-US"]),  # 用户2只能看C
+        "admin": ("admin123", None)  # 管理员能看所有店铺（None表示全部）
+    }
+
+    def verify():
+        username = st.session_state.get("username", "")
+        password = st.session_state.get("password", "")
+
+        if username in USER_PERMISSIONS:
+            stored_pwd, stores = USER_PERMISSIONS[username]
+            if password == stored_pwd:
+                st.session_state["authenticated"] = True
+                st.session_state["allowed_stores"] = stores  # 保存用户可访问的店铺
+                del st.session_state["username"]  # 清除输入
+                del st.session_state["password"]
+            else:
+                st.session_state["authenticated"] = False
+        else:
+            st.session_state["authenticated"] = False
+
+    # 未认证状态：显示登录表单
+    if "authenticated" not in st.session_state or not st.session_state["authenticated"]:
+        st.title("用户登录")
+        st.text_input("用户名", key="username", on_change=verify)
+        st.text_input("密码", type="password", key="password", on_change=verify)
+
+        # 显示错误信息
+        if "authenticated" in st.session_state and not st.session_state["authenticated"]:
+            st.error("用户名或密码错误")
+        return False
+    return True
+
+
+# 验证不通过则终止
+if not check_credentials():
+    st.stop()
 
 # 全局配置
 st.set_page_config(page_title="年份品滞销风险分析仪表盘", layout="wide", initial_sidebar_state="expanded")
@@ -515,14 +560,14 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
     return total_rows
 
 
-def render_three_week_comparison_table(df, date_list):
-    """渲染近三周概览表（带环比变化值）"""
+def render_four_week_comparison_table(df, date_list):
+    """渲染近四周概览表（带环比变化值）"""
     if len(date_list) < 1:
         st.markdown("<p>无数据可展示</p>", unsafe_allow_html=True)
         return
 
-    # 确保我们有最多三周的数据
-    display_dates = date_list[-3:] if len(date_list) >= 3 else date_list
+    # 确保我们有最多四周的数据（核心修改点：将3改为4）
+    display_dates = date_list[-4:] if len(date_list) >= 4 else date_list
     date_labels = [d.strftime("%Y-%m-%d") for d in display_dates]
 
     # 创建比较表数据
@@ -629,16 +674,16 @@ def render_three_week_comparison_table(df, date_list):
     st.markdown(html, unsafe_allow_html=True)
 
 
-def render_three_week_status_chart(df, date_list):
-    """三周状态变化趋势（柱状图版本）"""
+def render_four_week_status_chart(df, date_list):
+    """四周状态变化趋势（柱状图版本）"""
     if len(date_list) < 1:
         fig = go.Figure()
         fig.add_annotation(text="无数据可展示", x=0.5, y=0.5, showarrow=False, font=dict(size=16))
-        fig.update_layout(title="三周状态变化趋势", plot_bgcolor="#f8f9fa", height=400)
+        fig.update_layout(title="四周状态变化趋势", plot_bgcolor="#f8f9fa", height=400)
         return fig
 
-    # 获取最多三周数据
-    display_dates = date_list[-3:] if len(date_list) >= 3 else date_list
+    # 获取最多四周数据（核心修改点：将3改为4）
+    display_dates = date_list[-4:] if len(date_list) >= 4 else date_list
     date_labels = [d.strftime("%Y-%m-%d") for d in display_dates]
 
     # 准备数据
@@ -663,7 +708,7 @@ def render_three_week_status_chart(df, date_list):
         y="MSKU数",
         color="日期",
         barmode="group",
-        title="三周状态变化趋势",
+        title="四周状态变化趋势",  # 修改标题
         text="MSKU数",
         height=400
     )
@@ -681,6 +726,7 @@ def render_three_week_status_chart(df, date_list):
     )
 
     return fig
+
 
 
 def render_store_trend_charts(df, date_list):
@@ -1288,41 +1334,6 @@ def render_stock_forecast_chart(data, msku):
 # ------------------------------
 # 3. 主函数（页面布局）
 # ------------------------------
-# 1. 定义用户信息（可以放在全局，也可以放在main里）
-users = {
-    "user1": {
-        "name": "张三",
-        "password": "123456",  # 需用stauth.Hasher加密
-        "stores": ["争艳-US", "进益-US"]  # 张三负责的店铺
-    },
-    "user2": {
-        "name": "李四",
-        "password": "6654",
-        "stores": ["辰瑞-US"]  # 李四负责的店铺
-    }
-}
-# 初始化认证器
-hashed_passwords = [user["password"] for user in users.values()]
-names = [user["name"] for user in users.values()]
-usernames = list(users.keys())
-
-authenticator = stauth.Authenticate(
-    names, usernames, hashed_passwords,
-    "dashboard_cookie", "dashboard_signature_key",
-    cookie_expiry_days=30
-)
-
-# 显示登录窗口
-name, authentication_status, username = authenticator.login("登录", "main")
-
-if authentication_status is False:
-    st.error("用户名或密码错误")
-elif authentication_status is None:
-    st.warning("请输入用户名和密码")
-elif authentication_status:
-    # 登录成功，获取当前用户的店铺权限
-    current_user_stores = users[username]["stores"]
-    st.success(f"欢迎 {name}！您可以查看：{', '.join(current_user_stores)}")
 def main():
     # 初始化会话状态
     if "current_page" not in st.session_state:
@@ -1385,6 +1396,17 @@ def main():
 
             # 将读取到的数据赋值给df变量
             df = current_data  # 关键：把current_data的数据传递给df
+            # ------------------------------
+            # 新增：根据用户权限筛选店铺
+            # ------------------------------
+            allowed_stores = st.session_state.get("allowed_stores")
+            if allowed_stores is not None:  # 非管理员（有店铺限制）
+                # 筛选df中"店铺"列属于allowed_stores的行
+                df = df[df["店铺"].isin(allowed_stores)].copy()
+                # 检查筛选后是否有数据
+                if df.empty:
+                    st.error(f"您有权限的店铺（{', '.join(allowed_stores)}）没有数据")
+                    st.stop()  # 无数据则停止运行
 
             st.success("数据加载成功！")
         except Exception as e:
@@ -1430,700 +1452,7 @@ def main():
     current_data = get_week_data(df, selected_date)
     prev_data = get_previous_week_data(df, selected_date)
 
-    # 1.1 总体概览指标
-    st.subheader("1.1 总体概览")
-    if current_data is not None and not current_data.empty:
-        # 确保导入所需模块
-        from datetime import timedelta
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-
-        # 1. 计算当前周期指标
-        total_metrics = calculate_status_metrics(current_data)
-
-        # 计算各状态的总滞销库存和状态变化统计
-        status_stock_data = {}
-        status_change_counts = {
-            "健康": {"改善": 0, "不变": 0, "恶化": 0},
-            "低滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-            "中滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-            "高滞销风险": {"改善": 0, "不变": 0, "恶化": 0}
-        }
-
-        # 状态严重程度排序，用于判断变好/变差
-        status_severity = {
-            "健康": 0,
-            "低滞销风险": 1,
-            "中滞销风险": 2,
-            "高滞销风险": 3
-        }
-
-        for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
-            # 计算滞销库存
-            status_data = current_data[current_data["状态判断"] == status]
-            status_stock_data[status] = status_data["总滞销库存"].sum()
-
-            # 统计环比上周库存滞销情况变化
-            if 'prev_data' in locals() and prev_data is not None and not prev_data.empty:
-                for idx, row in status_data.iterrows():
-                    msku = row["MSKU"]
-                    prev_record = prev_data[prev_data["MSKU"] == msku]
-
-                    if not prev_record.empty:
-                        prev_status = prev_record["状态判断"].iloc[0]
-                        if prev_status == status:
-                            status_change_counts[status]["不变"] += 1
-                        else:
-                            # 比较严重程度判断变好/变差
-                            if status_severity[status] < status_severity[prev_status]:
-                                status_change_counts[status]["改善"] += 1
-                            else:
-                                status_change_counts[status]["恶化"] += 1
-
-        # 计算上周各状态的总滞销库存
-        def get_last_week_stock(status):
-            try:
-                current_date = pd.to_datetime(current_data["记录时间"].iloc[0])
-                last_week_start = current_date - timedelta(days=14)
-                last_week_end = current_date - timedelta(days=7)
-
-                if 'prev_data' in locals() and prev_data is not None and not prev_data.empty:
-                    prev_data['记录时间'] = pd.to_datetime(prev_data['记录时间'])
-                    last_week_data = prev_data[
-                        (prev_data['记录时间'] >= last_week_start) &
-                        (prev_data['记录时间'] <= last_week_end) &
-                        (prev_data["状态判断"] == status)
-                        ]
-                    if not last_week_data.empty:
-                        return last_week_data["总滞销库存"].sum()
-                return 0
-            except:
-                return 0
-
-        last_week_stock_data = {
-            status: get_last_week_stock(status)
-            for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
-        }
-
-        # 2. 获取上周指标（强制返回数值类型）
-        def get_last_week_metric(metric_key):
-            """获取上周指标，确保返回整数类型"""
-            try:
-                current_date = pd.to_datetime(current_data["记录时间"].iloc[0])
-                last_week_start = current_date - timedelta(days=14)
-                last_week_end = current_date - timedelta(days=7)
-
-                if 'prev_data' in locals() and prev_data is not None and not prev_data.empty:
-                    prev_data['记录时间'] = pd.to_datetime(prev_data['记录时间'])
-                    last_week_data = prev_data[
-                        (prev_data['记录时间'] >= last_week_start) &
-                        (prev_data['记录时间'] <= last_week_end)
-                        ]
-                    if not last_week_data.empty:
-                        last_week_metrics = calculate_status_metrics(last_week_data)
-                        return int(last_week_metrics.get(metric_key, 0))
-                return 0
-            except:
-                return 0  # 任何错误都返回0，确保类型安全
-
-        # 3. 计算差异值和百分比变化
-        metrics_data = {}
-        for metric in ["总MSKU数", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
-            current_val = int(total_metrics[metric])
-            last_week_val = get_last_week_metric(metric)
-            diff = current_val - last_week_val
-
-            if last_week_val == 0:
-                pct_change = 0.0
-            else:
-                pct_change = float((diff / last_week_val) * 100)
-
-            metrics_data[metric] = {
-                "current": current_val,
-                "last_week": last_week_val,
-                "diff": diff,
-                "pct": pct_change
-            }
-
-        # 4. 生成标题中的对比文本
-        def generate_compare_text(metric_data, metric_name):
-            last_week_val = metric_data["last_week"]
-            diff = metric_data["diff"]
-            pct = metric_data["pct"]
-
-            if last_week_val == 0:
-                return "<br><span style='color:#666666; font-size:0.8em;'>无上周数据</span>"
-
-            if diff > 0:
-                trend = "↑"
-                color = "#DC143C"
-            elif diff < 0:
-                trend = "↓"
-                color = "#2E8B57"
-            else:
-                trend = "→"
-                color = "#666666"
-
-            if metric_name == "总MSKU数":
-                return f"<br><span style='color:{color}; font-size:0.8em;'>{trend} 上周{last_week_val}，变化{diff} ({pct:.2f}%)</span>"
-            else:
-                status_desc = "上升" if diff > 0 else "下降" if diff < 0 else "无变化"
-                return f"<br><span style='color:{color}; font-size:0.8em;'>{trend} 上周{last_week_val}，{status_desc}{abs(diff)} ({pct:.2f}%)</span>"
-
-        # 5. 渲染指标卡片（添加总滞销库存和状态变化统计）
-        cols = st.columns(5)
-
-        # 总MSKU数卡片
-        with cols[0]:
-            metric_data = metrics_data["总MSKU数"]
-            compare_text = generate_compare_text(metric_data, "总MSKU数")
-            total_stock = sum(status_stock_data.values())
-            last_week_total_stock = sum(last_week_stock_data.values())
-            stock_diff = total_stock - last_week_total_stock
-
-            if stock_diff > 0:
-                stock_trend = "↑"
-                stock_color = "#DC143C"
-            elif stock_diff < 0:
-                stock_trend = "↓"
-                stock_color = "#2E8B57"
-            else:
-                stock_trend = "→"
-                stock_color = "#666666"
-
-            stock_text = f"总滞销库存: {total_stock:.2f}<br><span style='color:{stock_color}; font-size:0.8em;'>{stock_trend} 上周{last_week_total_stock:.2f} ({stock_diff:+.2f})</span>"
-
-            # 计算总体状态变化统计
-            total_better = sum(v["改善"] for v in status_change_counts.values())
-            total_same = sum(v["不变"] for v in status_change_counts.values())
-            total_worse = sum(v["恶化"] for v in status_change_counts.values())
-
-            change_text = f"状态变化:<br>改善: {total_better} 不变: {total_same} 恶化: {total_worse}"
-
-            render_metric_card(
-                f"总MSKU数{compare_text}<br><span style='font-size:0.9em;'>{stock_text}</span><br><span style='font-size:0.9em;'>{change_text}</span>",
-                metric_data["current"],
-                metric_data["diff"],
-                metric_data["pct"],
-                "#000000"
-            )
-
-        # 健康状态卡片
-        with cols[1]:
-            metric_data = metrics_data["健康"]
-            compare_text = generate_compare_text(metric_data, "健康")
-            current_stock = status_stock_data["健康"]
-            last_week_stock = last_week_stock_data["健康"]
-            stock_diff = current_stock - last_week_stock
-
-            if stock_diff > 0:
-                stock_trend = "↑"
-                stock_color = "#DC143C"
-            elif stock_diff < 0:
-                stock_trend = "↓"
-                stock_color = "#2E8B57"
-            else:
-                stock_trend = "→"
-                stock_color = "#666666"
-
-            stock_text = f"总滞销库存: {current_stock:.2f}<br><span style='color:{stock_color}; font-size:0.8em;'>{stock_trend} 上周{last_week_stock:.2f} ({stock_diff:+.2f})</span>"
-
-            # 状态变化文本
-            change_counts = status_change_counts["健康"]
-            change_text = f"状态变化:<br><span style='color:#2E8B57'>改善: {change_counts['改善']}</span> <span style='color:#1E90FF'>不变: {change_counts['不变']}</span> <span style='color:#DC143C'>恶化: {change_counts['恶化']}</span>"
-
-            render_metric_card(
-                f"健康{compare_text}<br><span style='font-size:0.9em;'>{stock_text}</span><br><span style='font-size:0.9em;'>{change_text}</span>",
-                metric_data["current"],
-                metric_data["diff"],
-                metric_data["pct"],
-                STATUS_COLORS["健康"]
-            )
-
-        # 低滞销风险卡片
-        with cols[2]:
-            metric_data = metrics_data["低滞销风险"]
-            compare_text = generate_compare_text(metric_data, "低滞销风险")
-            current_stock = status_stock_data["低滞销风险"]
-            last_week_stock = last_week_stock_data["低滞销风险"]
-            stock_diff = current_stock - last_week_stock
-
-            if stock_diff > 0:
-                stock_trend = "↑"
-                stock_color = "#DC143C"
-            elif stock_diff < 0:
-                stock_trend = "↓"
-                stock_color = "#2E8B57"
-            else:
-                stock_trend = "→"
-                stock_color = "#666666"
-
-            stock_text = f"总滞销库存: {current_stock:.2f}<br><span style='color:{stock_color}; font-size:0.8em;'>{stock_trend} 上周{last_week_stock:.2f} ({stock_diff:+.2f})</span>"
-
-            # 状态变化文本
-            change_counts = status_change_counts["低滞销风险"]
-            change_text = f"状态变化:<br><span style='color:#2E8B57'>改善: {change_counts['改善']}</span> <span style='color:#1E90FF'>不变: {change_counts['不变']}</span> <span style='color:#DC143C'>恶化: {change_counts['恶化']}</span>"
-
-            render_metric_card(
-                f"低滞销风险{compare_text}<br><span style='font-size:0.9em;'>{stock_text}</span><br><span style='font-size:0.9em;'>{change_text}</span>",
-                metric_data["current"],
-                metric_data["diff"],
-                metric_data["pct"],
-                STATUS_COLORS["低滞销风险"]
-            )
-
-        # 中滞销风险卡片
-        with cols[3]:
-            metric_data = metrics_data["中滞销风险"]
-            compare_text = generate_compare_text(metric_data, "中滞销风险")
-            current_stock = status_stock_data["中滞销风险"]
-            last_week_stock = last_week_stock_data["中滞销风险"]
-            stock_diff = current_stock - last_week_stock
-
-            if stock_diff > 0:
-                stock_trend = "↑"
-                stock_color = "#DC143C"
-            elif stock_diff < 0:
-                stock_trend = "↓"
-                stock_color = "#2E8B57"
-            else:
-                stock_trend = "→"
-                stock_color = "#666666"
-
-            stock_text = f"总滞销库存: {current_stock:.2f}<br><span style='color:{stock_color}; font-size:0.8em;'>{stock_trend} 上周{last_week_stock:.2f} ({stock_diff:+.2f})</span>"
-
-            # 状态变化文本
-            change_counts = status_change_counts["中滞销风险"]
-            change_text = f"状态变化:<br><span style='color:#2E8B57'>改善: {change_counts['改善']}</span> <span style='color:#1E90FF'>不变: {change_counts['不变']}</span> <span style='color:#DC143C'>恶化: {change_counts['恶化']}</span>"
-
-            render_metric_card(
-                f"中滞销风险{compare_text}<br><span style='font-size:0.9em;'>{stock_text}</span><br><span style='font-size:0.9em;'>{change_text}</span>",
-                metric_data["current"],
-                metric_data["diff"],
-                metric_data["pct"],
-                STATUS_COLORS["中滞销风险"]
-            )
-
-        # 高滞销风险卡片
-        with cols[4]:
-            metric_data = metrics_data["高滞销风险"]
-            compare_text = generate_compare_text(metric_data, "高滞销风险")
-            current_stock = status_stock_data["高滞销风险"]
-            last_week_stock = last_week_stock_data["高滞销风险"]
-            stock_diff = current_stock - last_week_stock
-
-            if stock_diff > 0:
-                stock_trend = "↑"
-                stock_color = "#DC143C"
-            elif stock_diff < 0:
-                stock_trend = "↓"
-                stock_color = "#2E8B57"
-            else:
-                stock_trend = "→"
-                stock_color = "#666666"
-
-            stock_text = f"总滞销库存: {current_stock:.2f}<br><span style='color:{stock_color}; font-size:0.8em;'>{stock_trend} 上周{last_week_stock:.2f} ({stock_diff:+.2f})</span>"
-
-            # 状态变化文本
-            change_counts = status_change_counts["高滞销风险"]
-            change_text = f"状态变化:<br><span style='color:#2E8B57'>改善: {change_counts['改善']}</span> <span style='color:#1E90FF'>不变: {change_counts['不变']}</span> <span style='color:#DC143C'>恶化: {change_counts['恶化']}</span>"
-
-            render_metric_card(
-                f"高滞销风险{compare_text}<br><span style='font-size:0.9em;'>{stock_text}</span><br><span style='font-size:0.9em;'>{change_text}</span>",
-                metric_data["current"],
-                metric_data["diff"],
-                metric_data["pct"],
-                STATUS_COLORS["高滞销风险"]
-            )
-
-        # 6. 图表部分
-        col1, col2, col3 = st.columns(3)
-
-        # 第一个图表：总体状态分布
-        with col1:
-            status_data = pd.DataFrame({
-                "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                "MSKU数": [metrics_data[stat]["current"] for stat in
-                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-            })
-
-            fig_status = px.bar(
-                status_data,
-                x="状态",
-                y="MSKU数",
-                color="状态",
-                color_discrete_map=STATUS_COLORS,
-                title="总体状态分布",
-                text="MSKU数",
-                height=400,
-                custom_data=["状态"]  # 保持交互数据
-            )
-
-            fig_status.update_traces(
-                textposition="outside",
-                textfont=dict(size=12, weight="bold"),
-                marker=dict(line=dict(color="#ffffff", width=1))
-            )
-
-            fig_status.update_layout(
-                xaxis_title="风险状态",
-                yaxis_title="MSKU数量",
-                showlegend=True,
-                plot_bgcolor="#f8f9fa",
-                margin=dict(t=50, b=20, l=20, r=20)
-            )
-
-            # 关键：移除 return_fig_objs=True，使用默认配置
-            st.plotly_chart(fig_status, use_container_width=True, config={'displayModeBar': True})
-            # 获取点击数据（Streamlit 1.21+ 支持）
-            status_click = st.session_state.get('fig_status_click', None)
-            status_click = st.session_state.get('fig_status_click', None)
-            if status_click:
-                try:
-                    status = status_click['points'][0]['customdata'][0]
-                    st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
-                    st.success(f"已筛选：{status}")
-                except (IndexError, KeyError) as e:
-                    st.error(f"状态分布图表点击错误: {str(e)}")
-
-        # 第二个图表：状态判断饼图
-        with col2:
-            pie_data = pd.DataFrame({
-                "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                "MSKU数": [metrics_data[stat]["current"] for stat in
-                           ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-            })
-
-            total = pie_data["MSKU数"].sum()
-            pie_data["占比"] = pie_data["MSKU数"].apply(lambda x: f"{(x / total * 100):.2f}%")
-
-            fig_pie = px.pie(
-                pie_data,
-                values="MSKU数",
-                names="状态",
-                color="状态",
-                color_discrete_map=STATUS_COLORS,
-                title="状态占比分布",
-                height=400,
-                custom_data=["状态"]  # 保持交互数据
-            )
-
-            fig_pie.update_traces(
-                textinfo="label+value+percent",
-                textposition="inside",
-                hole=0.3
-            )
-
-            fig_pie.update_layout(
-                plot_bgcolor="#f8f9fa",
-                margin=dict(t=50, b=20, l=20, r=20)
-            )
-
-            # 关键：移除 return_fig_objs=True
-            st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': True})
-            pie_click = st.session_state.get('fig_pie_click', None)
-            pie_click = st.session_state.get('fig_pie_click', None)
-            if pie_click:
-                try:
-                    status = pie_click['points'][0]['customdata'][0]
-                    st.session_state.selected_chart_data = current_data[current_data["状态判断"] == status]
-                    st.success(f"已筛选：{status}")
-                except (IndexError, KeyError) as e:
-                    st.error(f"饼图点击错误: {str(e)}")
-
-        # 第三个图表：环比上周库存滞销情况变化柱状图（按变好/不变/变差着色）
-        with col3:
-            # 准备状态变化数据
-            change_types = ["改善", "不变", "恶化"]
-            change_colors = {"改善": "#2E8B57", "不变": "#1E90FF", "恶化": "#DC143C"}
-
-            # 创建堆叠柱状图数据
-            fig_change = go.Figure()
-
-            for change_type in change_types:
-                fig_change.add_trace(go.Bar(
-                    x=["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                    y=[status_change_counts[status][change_type] for status in
-                       ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]],
-                    name=change_type,
-                    marker_color=change_colors[change_type],
-                    customdata=[[status, change_type] for status in
-                                ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
-                ))
-
-            fig_change.update_layout(
-                barmode='stack',
-                title="环比上周库存滞销情况变化",
-                xaxis_title="风险状态",
-                yaxis_title="MSKU数量",
-                plot_bgcolor="#f8f9fa",
-                margin=dict(t=50, b=20, l=20, r=20),
-                height=400
-            )
-
-            # 关键：移除 return_fig_objs=True
-            st.plotly_chart(fig_change, use_container_width=True, config={'displayModeBar': True})
-            change_click = st.session_state.get('fig_change_click', None)
-            change_click = st.session_state.get('fig_change_click', None)
-            if change_click:
-                try:
-                    status = change_click['points'][0]['customdata'][0]  # 从修复后的 customdata 获取
-                    change_type = change_click['points'][0]['customdata'][1]
-                    # 后续筛选逻辑不变...
-                except (IndexError, KeyError) as e:
-                    st.error(f"状态变化图表点击错误: {str(e)}")
-
-        current_week_data = get_week_data(df, selected_date)
-        previous_week_data = get_previous_week_data(df, selected_date)
-        summary_df = create_risk_summary_table(current_week_data, previous_week_data)
-        render_risk_summary_table(summary_df)
-
-
-        # 第四个图表：组合图（添加正确的阈值线）
-        st.subheader("总体库存消耗天数与滞销库存分布")
-
-        # 计算当前日期到2025年12月1日的天数差
-        today = datetime.now().date()  # 获取当前日期
-        target_date = datetime(2025, 12, 1).date()  # 目标日期：2025年12月1日
-        days_to_target = (target_date - today).days  # 计算天数差
-
-        # 根据需求设置各风险等级的阈值
-        thresholds = {
-            "健康": days_to_target,  # 健康：当前到目标日期的天数
-            "低滞销风险": days_to_target + 10,  # 低风险：加10天
-            "中滞销风险": days_to_target + 30  # 中风险：加30天
-        }
-
-        # 风险等级对应的颜色
-        threshold_colors = {
-            "健康": STATUS_COLORS["健康"],  # 绿色
-            "低滞销风险": STATUS_COLORS["低滞销风险"],  # 蓝色
-            "中滞销风险": STATUS_COLORS["中滞销风险"]  # 黄色
-        }
-
-        valid_days = current_data["预计总库存需要消耗天数"].clip(lower=0)
-        max_days = valid_days.max() if not valid_days.empty else 0
-        bin_width = 20
-        num_bins = int((max_days + bin_width - 1) // bin_width)
-        bins = [i * bin_width for i in range(num_bins + 1)]
-        bin_labels = [f"{bins[i]}-{bins[i + 1]}" for i in range(len(bins) - 1)]
-
-        # 准备天数区间数据
-        binned_data = pd.cut(
-            valid_days,
-            bins=bins,
-            labels=bin_labels,
-            include_lowest=True
-        ).value_counts().sort_index().reset_index()
-        binned_data.columns = ["天数区间", "MSKU数量"]
-
-        # 准备滞销库存数据
-        stock_bins = []
-        for label in bin_labels:
-            start, end = map(int, label.split('-'))
-            mask = (valid_days >= start) & (valid_days < end)
-            stock = current_data.loc[mask, "总滞销库存"].sum()
-            stock_bins.append(stock)
-
-        binned_data["总滞销库存"] = stock_bins
-
-        # 创建组合图
-        fig_combined = make_subplots(specs=[[{"secondary_y": True}]])
-
-        # 添加柱状图（总滞销库存）
-        fig_combined.add_trace(
-            go.Bar(
-                x=binned_data["天数区间"],
-                y=binned_data["总滞销库存"],
-                name="总滞销库存",
-                marker_color="#87CEEB",
-                customdata=binned_data["天数区间"]  # 添加交互数据：天数区间
-            ),
-            secondary_y=False,
-        )
-
-        # 添加折线图（MSKU数量）
-        fig_combined.add_trace(
-            go.Scatter(
-                x=binned_data["天数区间"],
-                y=binned_data["MSKU数量"],
-                name="MSKU数量",
-                line=dict(color="#DC143C", width=2),
-                mode="lines+markers",
-                customdata=binned_data["天数区间"]  # 添加交互数据：天数区间
-            ),
-            secondary_y=True,
-        )
-
-        # 添加各风险等级的阈值线（虚线）- 修正版
-        for status, threshold in thresholds.items():
-            if threshold >= 0:  # 只显示有效的阈值线
-                # 找到包含阈值的区间
-                threshold_bin_index = None
-                for i, label in enumerate(bin_labels):
-                    start, end = map(int, label.split('-'))
-                    if start <= threshold < end:
-                        threshold_bin_index = i
-                        break
-
-                # 如果找到了对应的区间，添加垂直线
-                if threshold_bin_index is not None:
-                    fig_combined.add_vline(
-                        x=threshold_bin_index,  # 使用区间索引作为x坐标
-                        line_dash="dash",
-                        line_color=threshold_colors[status],
-                        line_width=2,
-                        annotation_text=f"{status}阈值 ({threshold}天)",
-                        annotation_position="top right",
-                        annotation_font=dict(
-                            color=threshold_colors[status],
-                            size=10,
-                            weight="bold"
-                        )
-                    )
-
-        # 更新布局
-        fig_combined.update_layout(
-            plot_bgcolor="#f8f9fa",
-            margin=dict(t=50, b=50, l=20, r=20),
-            xaxis_title="预计总库存需要消耗天数区间",
-            showlegend=True,
-            xaxis_tickangle=-45
-        )
-
-        # 设置y轴标签
-        fig_combined.update_yaxes(title_text="总滞销库存", secondary_y=False)
-        fig_combined.update_yaxes(title_text="MSKU数量", secondary_y=True)
-
-        # 关键：移除 return_fig_objs=True
-        st.plotly_chart(fig_combined, use_container_width=True, config={'displayModeBar': True})
-        combined_click = st.session_state.get('fig_combined_click', None)
-        # 然后处理点击
-        combined_click = st.session_state.get('fig_combined_click', None)
-        if combined_click:
-            try:
-                days_range = combined_click['points'][0]['customdata']
-                # 后续筛选逻辑不变...
-            except (IndexError, KeyError) as e:
-                st.error(f"组合图点击错误: {str(e)}")
-
-    # 1.2 店铺风险分布
-    st.subheader("1.2 店铺风险分布")
-    if current_data is not None and not current_data.empty:
-        render_store_status_table(current_data, prev_data)
-    else:
-        st.warning("无店铺数据可展示")
-
-    # 1.3 产品风险详情（带分页）
-    st.subheader("1.3 产品风险详情")
-    if current_data is not None and not current_data.empty:
-        # 筛选条件
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            selected_store = st.selectbox(
-                "选择店铺",
-                options=["全部"] + sorted(current_data["店铺"].unique().tolist())
-            )
-        with col2:
-            selected_status = st.selectbox(
-                "选择风险状态",
-                options=["全部", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]
-            )
-        with col3:
-            search_msku = st.text_input("搜索MSKU/品名", placeholder="输入关键词搜索")
-
-        # 应用筛选
-        filtered_data = current_data.copy()
-        if selected_store != "全部":
-            filtered_data = filtered_data[filtered_data["店铺"] == selected_store]
-        if selected_status != "全部":
-            filtered_data = filtered_data[filtered_data["状态判断"] == selected_status]
-        if search_msku:
-            search_str = search_msku.lower()
-            filtered_data = filtered_data[
-                filtered_data["MSKU"].str.lower().str.contains(search_str) |
-                filtered_data["品名"].str.lower().str.contains(search_str)
-                ]
-
-        # 显示筛选结果数量
-        st.write(f"筛选结果：共 {len(filtered_data)} 条记录")
-
-        # 定义要显示和下载的列
-        display_columns = [
-            "店铺", "MSKU", "品名", "记录时间", "日均", "7天日均", "14天日均",
-            "28天日均", "FBA+AWD+在途库存", "本地可用","全部总库存", "预计FBA+AWD+在途用完时间",
-            "预计总库存用完", "状态判断","清库存的目标日均"
-            "FBA+AWD+在途滞销数量",
-            "本地滞销数量", "总滞销库存",
-            "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数","环比上周库存滞销情况变化"
-        ]
-
-        # 渲染带分页的产品详情表
-        render_product_detail_table(
-            filtered_data,
-            prev_data,
-            page=st.session_state.current_page,
-            page_size=30,
-            table_id="main_products"  # 唯一标识
-        )
-
-        # 添加下载按钮（下载筛选后的所有数据）
-        if not filtered_data.empty:
-            # 准备要下载的数据（只包含显示的列）
-            # 在准备下载数据前，添加完整的列名检查和处理逻辑
-            # 1. 定义预期的列名列表（根据最新修改）
-            expected_columns = [
-                "MSKU", "品名", "店铺", "日均", "7天日均", "14天日均", "28天日均",
-                "FBA+AWD+在途库存", "本地可用",
-                "全部总库存", "预计FBA+AWD+在途用完时间",
-                "预计总库存用完", "状态判断", "清库存的目标日均",
-                "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-                "环比上周库存滞销情况变化"
-            ]
-
-            # 2. 检查数据中实际存在的列
-            actual_columns = filtered_data.columns.tolist()
-
-            # 3. 找出存在的有效列和缺失的列
-            valid_columns = [col for col in expected_columns if col in actual_columns]
-            missing_columns = [col for col in expected_columns if col not in actual_columns]
-
-            # 4. 显示缺失列的警告信息
-            if missing_columns:
-                st.warning(f"数据中缺少以下列，已自动跳过：{', '.join(missing_columns)}")
-                # 可以在这里添加日志记录，方便排查数据问题
-                # import logging
-                # logging.warning(f"Missing columns: {', '.join(missing_columns)}")
-
-            # 5. 确保至少有一列可用于下载
-            if valid_columns:
-                download_data = filtered_data[valid_columns]
-            else:
-                st.error("没有找到有效的列用于生成下载数据，请检查数据格式是否正确")
-                download_data = pd.DataFrame()  # 创建空DataFrame避免后续错误
-
-            # 生成CSV
-            csv = download_data.to_csv(index=False, encoding='utf-8-sig')
-
-            # 构建文件名（包含筛选条件）
-            store_part = selected_store if selected_store != "全部" else "所有店铺"
-            status_part = selected_status if selected_status != "全部" else "所有状态"
-            search_part = f"_搜索_{search_msku}" if search_msku else ""
-            file_name = f"产品风险详情_{store_part}_{status_part}{search_part}.csv"
-
-            # 下载按钮
-            st.download_button(
-                label="下载筛选结果 (CSV)",
-                data=csv,
-                file_name=file_name,
-                mime="text/csv",
-                key="download_risk_details_filtered"
-            )
-    else:
-        st.warning("无产品数据可展示")
-
-    st.subheader("1.4 单个店铺分析")
+    st.subheader("1 店铺整体分析")
     if current_data is not None and not current_data.empty:
         stores = sorted(current_data["店铺"].unique())
         selected_store = st.selectbox("选择店铺进行分析", options=stores)
@@ -2656,8 +1985,8 @@ def main():
     else:
         st.warning("无店铺数据可分析")
 
-    # 1.5 单个MSKU分析
-    st.subheader("1.5 单个MSKU分析")
+    # 单个MSKU分析
+    st.subheader("单个MSKU分析")
     if current_data is not None and not current_data.empty:
         msku_list = sorted(current_data["MSKU"].unique())
 
@@ -2722,27 +2051,23 @@ def main():
     # ------------------------------
     # 第二部分：趋势与变化分析
     # ------------------------------
-    st.header("二、趋势与变化分析")
+    st.header("2 近一个月的趋势与变化分析")
 
-    # 2.1 近三周概览（带环比变化值）
-    st.subheader("2.1 近三周概览")
-    render_three_week_comparison_table(df, all_dates)
-
-    # 2.2 三周状态变化趋势（柱状图版本）
-    st.subheader("2.2 三周状态变化趋势")
-    trend_fig = render_three_week_status_chart(df, all_dates)
+    # 2.1 三周状态变化趋势（柱状图版本）
+    st.subheader("2.1 近一个月状态变化趋势")
+    trend_fig = render_four_week_status_chart(df, all_dates)
     st.plotly_chart(trend_fig, use_container_width=True)
 
-    # 2.3 店铺周变化情况
-    st.subheader("2.3 店铺周变化情况")
+    # 2.2 店铺周变化情况
+    st.subheader("2.2 店铺周变化情况")
     render_store_weekly_changes(df, all_dates)
 
     # 店铺趋势图表（分两列显示）
-    st.subheader("2.4 店铺状态趋势图")
+    st.subheader("2.3 店铺状态趋势图")
     render_store_trend_charts(df, all_dates)
 
-    # 2.5 店铺与状态变化联合分析
-    st.subheader("2.5 店铺与状态变化联合分析")
+    # 2.4 店铺与状态变化联合分析
+    st.subheader("2.4 店铺与状态变化联合分析")
     if df is not None and not df.empty:
         # 店铺筛选器
         all_stores = sorted(df["店铺"].unique())
@@ -2798,6 +2123,7 @@ def main():
             ]
 
             # 2. 检查数据中实际存在的列
+            filtered_data = current_data.copy()
             actual_columns = filtered_data.columns.tolist()
 
             # 3. 找出存在的有效列和缺失的列
@@ -2840,8 +2166,8 @@ def main():
     else:
         st.warning("无数据可进行联合分析")
 
-    # 2.6 单个产品详细分析
-    st.subheader("2.6 单个产品详细分析")
+    # 2.5 单个产品详细分析
+    st.subheader("2.5 单个产品详细分析")
     if df is not None and not df.empty:
         # 获取所有MSKU并排序
         all_mskus = sorted(df["MSKU"].unique())
