@@ -2245,7 +2245,7 @@ def main():
             ]
 
             # 2. 检查数据中实际存在的列
-            filtered_data = current_data.copy()
+            filtered_data = analysis_data.copy()
             actual_columns = filtered_data.columns.tolist()
 
             # 3. 找出存在的有效列和缺失的列
