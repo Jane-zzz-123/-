@@ -114,11 +114,9 @@ END_DATE = datetime(2025, 12, 31)  # 预测截止日期
 # 1. 数据加载与预处理函数
 # ------------------------------
 @st.cache_data(ttl=3600)
-def load_and_preprocess_data(file_path):
+def load_and_preprocess_data_from_df(df):
     """加载Excel数据并进行预处理，包含所有列的计算逻辑"""
     try:
-        df = pd.read_excel(file_path)
-
         # 检查必要的基础列（用于计算的原始数据）
         required_base_cols = [
             "MSKU", "品名", "店铺", "记录时间", "日均",
@@ -1511,8 +1509,15 @@ def main():
                 engine='openpyxl'  # 明确指定引擎
             )
 
-            # 将读取到的数据赋值给df变量
-            df = current_data  # 关键：把current_data的数据传递给df
+            # ------------------------------
+            # 新增：调用预处理函数，执行计算逻辑
+            # （包括生成"状态判断"等所有衍生列）
+            # ------------------------------
+            df = load_and_preprocess_data_from_df(current_data)  # 关键修改：执行计算
+            if df is None:  # 处理预处理失败的情况
+                st.error("数据预处理失败，无法继续")
+                st.stop()
+
             # ------------------------------
             # 新增：根据用户权限筛选店铺
             # ------------------------------
