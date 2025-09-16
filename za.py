@@ -115,44 +115,139 @@ END_DATE = datetime(2025, 12, 31)  # 预测截止日期
 # ------------------------------
 @st.cache_data(ttl=3600)
 def load_and_preprocess_data(file_path):
-    """加载Excel数据并进行预处理"""
+    """加载Excel数据并进行预处理，包含所有列的计算逻辑"""
     try:
         df = pd.read_excel(file_path)
 
-        # 检查必要列（包含所有需要的列）
-        required_cols = [
+        # 检查必要的基础列（用于计算的原始数据）
+        required_base_cols = [
             "MSKU", "品名", "店铺", "记录时间", "日均",
-            "7天日均", "14天日均", "28天日均",
-            "FBA+AWD+在途库存", "全部总库存", "预计FBA+AWD+在途用完时间",  # 修改列名
-            "预计总库存用完", "状态判断", "环比上周库存滞销情况变化",  # 修改列名
-            "FBA+AWD+在途滞销数量",  # 修改列名
-            "本地滞销数量", "总滞销库存",
-            "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-            "清库存的目标日均",  # 修改列名
-            "本地可用"
+            "FBA库存", "FBA在途", "海外仓在途", "本地可用",
+            "待检待上架量", "待交付"
         ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
+        missing_cols = [col for col in required_base_cols if col not in df.columns]
         if missing_cols:
-            st.error(f"Excel文件缺少必要列：{', '.join(missing_cols)}")
+            st.error(f"Excel文件缺少必要的基础列：{', '.join(missing_cols)}")
             return None
 
         # 数据类型转换
         df["记录时间"] = pd.to_datetime(df["记录时间"]).dt.normalize()
-        numeric_cols = ["日均", "7天日均", "14天日均", "28天日均",
-                        "FBA+AWD+在途库存", "全部总库存","本地可用",
-                        "FBA滞销数量", "本地滞销数量", "总滞销库存",
-                        "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-                        "清库存的目标日均"]
+        numeric_cols = ["日均", "FBA库存", "FBA在途", "海外仓在途",
+                        "本地可用", "待检待上架量", "待交付"]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-        # 处理日期列
-        df["预计FBA+AWD+在途用完时间"] = pd.to_datetime(df["预计FBA+AWD+在途用完时间"])
-        df["预计总库存用完"] = pd.to_datetime(df["预计总库存用完"])
+        # ------------------------------
+        # 核心计算逻辑
+        # ------------------------------
 
-        # 计算库存可用天数
-        df["FBA库存可用天数"] = np.where(df["日均"] > 0, df["FBA+AWD+在途库存"] / df["日均"], 0)
-        df["总库存可用天数"] = np.where(df["日均"] > 0, df["全部总库存"] / df["日均"], 0)
+        # 1. FBA+AWD+在途库存 = FBA库存 + FBA在途 + 海外仓在途（保留整数）
+        df["FBA+AWD+在途库存"] = (df["FBA库存"] + df["FBA在途"] + df["海外仓在途"]).round().astype(int)
+
+        # 2. 全部总库存 = FBA+AWD+在途库存 + 本地可用 + 待检待上架量 + 待交付（保留整数）
+        df["全部总库存"] = (
+                df["FBA+AWD+在途库存"] + df["本地可用"] + df["待检待上架量"] + df["待交付"]
+        ).round().astype(int)
+
+        # 3. 预计FBA+AWD+在途用完时间 = 记录时间 + FBA+AWD+在途库存/日均
+        # 处理日均为0的情况，避免除以零错误
+        safe_avg_daily = df["日均"].replace(0, 0.1)  # 用0.1代替0，避免无限大
+        df["预计FBA+AWD+在途用完时间"] = df["记录时间"] + pd.to_timedelta(
+            df["FBA+AWD+在途库存"] / safe_avg_daily, unit='d'
+        )
+
+        # 4. 预计总库存用完 = 记录时间 + 全部总库存/日均（保留整数日期）
+        df["预计总库存用完"] = df["记录时间"] + pd.to_timedelta(
+            df["全部总库存"] / safe_avg_daily, unit='d'
+        )
+
+        # 5. 预计用完时间比目标时间多出来的天数
+        # 计算与目标日期的差值（天）
+        days_diff = (df["预计总库存用完"] - TARGET_DATE).dt.days
+        # 若差值>0则保留，否则为0（保留整数）
+        df["预计用完时间比目标时间多出来的天数"] = np.where(days_diff > 0, days_diff, 0).astype(int)
+
+        # 6. 状态判断
+        def determine_status(days):
+            if days >= 20:
+                return "高滞销风险"
+            elif days >= 10:
+                return "中滞销风险"
+            elif days > 0:
+                return "低滞销风险"
+            else:  # days == 0
+                return "健康"
+
+        df["状态判断"] = df["预计用完时间比目标时间多出来的天数"].apply(determine_status)
+
+        # 7. 环比上周库存滞销情况变化
+        # 先按MSKU和记录时间排序
+        df = df.sort_values(["MSKU", "记录时间"])
+        # 获取上一周的状态
+        df["上周状态"] = df.groupby("MSKU")["状态判断"].shift(1)
+
+        # 定义状态严重程度，用于比较
+        status_severity = {"健康": 0, "低滞销风险": 1, "中滞销风险": 2, "高滞销风险": 3}
+
+        def compare_status(current, previous):
+            if pd.isna(previous):  # 没有上一周数据
+                return "-"
+            if current == previous:  # 状态不变
+                return "维持不变"
+
+            # 比较严重程度
+            current_sev = status_severity.get(current, 0)
+            prev_sev = status_severity.get(previous, 0)
+
+            if current_sev < prev_sev:  # 当前状态更轻
+                return "改善"
+            else:  # 当前状态更严重
+                return "恶化"
+
+        df["环比上周库存滞销情况变化"] = df.apply(
+            lambda row: compare_status(row["状态判断"], row["上周状态"]), axis=1
+        )
+
+        # 8. FBA+AWD+在途滞销数量
+        # 计算目标日期前的可用天数
+        days_to_target = (TARGET_DATE - df["记录时间"]).dt.days
+        # 计算目标日期前可消耗的库存
+        consumable_before_target = days_to_target * df["日均"]
+        # 计算滞销数量
+        fba_excess = df["FBA+AWD+在途库存"] - consumable_before_target
+        df["FBA+AWD+在途滞销数量"] = np.where(
+            df["预计FBA+AWD+在途用完时间"] > TARGET_DATE,
+            np.maximum(fba_excess, 0),  # 取正值
+            0
+        ).round().astype(int)
+
+        # 9. 总滞销库存
+        total_excess = df["全部总库存"] - consumable_before_target
+        df["总滞销库存"] = np.where(
+            df["预计总库存用完"] > TARGET_DATE,
+            np.maximum(total_excess, 0),  # 取正值
+            0
+        ).round().astype(int)
+
+        # 10. 本地滞销数量 = 总滞销库存 - FBA+AWD+在途滞销数量
+        df["本地滞销数量"] = (df["总滞销库存"] - df["FBA+AWD+在途滞销数量"]).round().astype(int)
+        # 确保不会出现负数
+        df["本地滞销数量"] = np.maximum(df["本地滞销数量"], 0)
+
+        # 11. 预计总库存需要消耗天数 = 全部总库存 / 日均（保留整数）
+        df["预计总库存需要消耗天数"] = (df["全部总库存"] / safe_avg_daily).round().astype(int)
+
+        # 12. 清库存的目标日均
+        # 计算从记录时间到目标日期的天数
+        days_available = (TARGET_DATE - df["记录时间"]).dt.days
+        # 处理天数为0的情况
+        days_available = np.maximum(days_available, 1)  # 至少1天
+        # 计算目标日均
+        df["清库存的目标日均"] = np.where(
+            df["状态判断"] == "健康",
+            df["日均"],  # 健康状态使用当前日均
+            df["全部总库存"] / days_available  # 其他状态按目标日期计算
+        ).round(2)  # 保留两位小数
 
         # 排序
         df = df.sort_values("记录时间", ascending=False).reset_index(drop=True)
@@ -1401,7 +1496,7 @@ def main():
         st.subheader("数据加载中...")
         try:
             # 正确的Raw格式链接
-            data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/model-weekday.xlsx"
+            data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday.xlsx"
 
             # 从URL读取数据
             response = requests.get(data_url)
