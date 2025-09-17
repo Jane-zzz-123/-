@@ -114,7 +114,7 @@ END_DATE = datetime(2025, 12, 31)  # 预测截止日期
 # 1. 数据加载与预处理函数
 # ------------------------------
 @st.cache_data(ttl=3600)
-def load_and_preprocess_data_from_df(df):
+def load_and_preprocess_data_from_df(df, coeff_df):  # 新增coeff_df参数
     """加载Excel数据并进行预处理，包含所有列的计算逻辑"""
     try:
         # 检查必要的基础列（用于计算的原始数据）
@@ -134,7 +134,36 @@ def load_and_preprocess_data_from_df(df):
                         "本地可用", "待检待上架量", "待交付"]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        # 新增：根据系数调整日均
+        # ------------------------------
+        # 保留原始日均用于对比（可选）
+        df["原始日均"] = df["日均"].copy()
 
+        # 合并系数数据
+        df = df.merge(coeff_df, on="MSKU", how="left")
+
+        # 定义目标时间段（2025-10-15至2025-12-31）
+        target_start = pd.to_datetime("2025-10-15").normalize()
+        target_end = pd.to_datetime("2025-12-31").normalize()
+
+        # 计算是否在目标时间段内
+        in_target_period = (df["记录时间"] >= target_start) & (df["记录时间"] <= target_end)
+
+        # 计算是否在系数生效时间段内
+        in_coeff_period = (df["记录时间"] >= df["开始时间"]) & (df["记录时间"] <= df["结束时间"])
+
+        # 确定调整系数（默认1.0）
+        df["调整系数"] = np.where(
+            in_target_period & in_coeff_period & ~df["系数"].isna(),
+            df["系数"],
+            1.0
+        )
+
+        # 应用系数调整日均
+        df["日均"] = (df["原始日均"] * df["调整系数"]).round(2)
+
+        # 清理临时列
+        df = df.drop(columns=["开始时间", "结束时间", "系数", "调整系数"], errors="ignore")
         # ------------------------------
         # 核心计算逻辑
         # ------------------------------
@@ -1495,7 +1524,7 @@ def main():
         try:
             # 正确的Raw格式链接
             data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday.xlsx"
-
+            coeff_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/Coefficient.xlsx"  # 系数文件URL
             # 从URL读取数据
             response = requests.get(data_url)
             response.raise_for_status()  # 检查请求是否成功
@@ -1513,11 +1542,34 @@ def main():
             # 新增：调用预处理函数，执行计算逻辑
             # （包括生成"状态判断"等所有衍生列）
             # ------------------------------
-            df = load_and_preprocess_data_from_df(current_data)  # 关键修改：执行计算
-            if df is None:  # 处理预处理失败的情况
+            # ------------------------------
+            # 新增：加载系数数据
+            # ------------------------------
+            coeff_response = requests.get(coeff_url)
+            coeff_response.raise_for_status()
+            coeff_excel = BytesIO(coeff_response.content)
+            coeff_df = pd.read_excel(
+                coeff_excel,
+                engine='openpyxl'
+            )
+
+            # 系数数据预处理（转换日期格式）
+            required_coeff_cols = ["MSKU", "开始时间", "结束时间", "系数"]
+            missing_coeff_cols = [col for col in required_coeff_cols if col not in coeff_df.columns]
+            if missing_coeff_cols:
+                st.error(f"系数文件缺少必要列：{', '.join(missing_coeff_cols)}")
+                st.stop()
+            coeff_df["开始时间"] = pd.to_datetime(coeff_df["开始时间"]).dt.normalize()
+            coeff_df["结束时间"] = pd.to_datetime(coeff_df["结束时间"]).dt.normalize()
+
+            # ------------------------------
+            # 调用预处理函数（传入系数数据用于调整日均）
+            # ------------------------------
+            # 修改预处理函数参数，接收系数数据
+            df = load_and_preprocess_data_from_df(current_data, coeff_df)  # 关键修改
+            if df is None:
                 st.error("数据预处理失败，无法继续")
                 st.stop()
-
             # ------------------------------
             # 新增：根据用户权限筛选店铺
             # ------------------------------
