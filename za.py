@@ -134,36 +134,49 @@ def load_and_preprocess_data_from_df(df, coeff_df):  # 新增coeff_df参数
                         "本地可用", "待检待上架量", "待交付"]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        # 新增：根据系数调整日均
+        # 系数调整逻辑优化
         # ------------------------------
-        # 保留原始日均用于对比（可选）
+        # 保留原始日均用于对比
         df["原始日均"] = df["日均"].copy()
 
-        # 合并系数数据
-        df = df.merge(coeff_df, on="MSKU", how="left")
+        # 确保系数表时间格式正确
+        coeff_df["开始时间"] = pd.to_datetime(coeff_df["开始时间"]).dt.normalize()
+        coeff_df["结束时间"] = pd.to_datetime(coeff_df["结束时间"]).dt.normalize()
 
-        # 定义目标时间段（2025-10-15至2025-12-31）
+        # 目标时间段定义
         target_start = pd.to_datetime("2025-10-15").normalize()
         target_end = pd.to_datetime("2025-12-31").normalize()
+        df["在目标时间段内"] = (df["记录时间"] >= target_start) & (df["记录时间"] <= target_end)
 
-        # 计算是否在目标时间段内
-        in_target_period = (df["记录时间"] >= target_start) & (df["记录时间"] <= target_end)
+        # 使用merge_asof进行时间范围匹配（核心优化点）
+        # 按MSKU和时间排序
+        df_sorted = df.sort_values(["MSKU", "记录时间"])
+        coeff_sorted = coeff_df.sort_values(["MSKU", "开始时间"])
 
-        # 计算是否在系数生效时间段内
-        in_coeff_period = (df["记录时间"] >= df["开始时间"]) & (df["记录时间"] <= df["结束时间"])
+        # 精确匹配MSKU并找到符合时间范围的系数
+        merged = pd.merge_asof(
+            df_sorted,
+            coeff_sorted[["MSKU", "开始时间", "结束时间", "系数"]],
+            on="MSKU",
+            direction="backward",
+            allow_exact_matches=True
+        )
 
-        # 确定调整系数（默认1.0）
-        df["调整系数"] = np.where(
-            in_target_period & in_coeff_period & ~df["系数"].isna(),
-            df["系数"],
+        # 筛选出记录时间在系数生效范围内的数据
+        valid_coeff = (merged["记录时间"] >= merged["开始时间"]) & (merged["记录时间"] <= merged["结束时间"])
+
+        # 应用系数（仅在目标时间段且有有效系数时）
+        merged["调整系数"] = np.where(
+            merged["在目标时间段内"] & valid_coeff & ~merged["系数"].isna(),
+            merged["系数"],
             1.0
         )
 
-        # 应用系数调整日均
-        df["日均"] = (df["原始日均"] * df["调整系数"]).round(2)
+        # 计算调整后日均
+        merged["日均"] = (merged["原始日均"] * merged["调整系数"]).round(2)
 
         # 清理临时列
-        df = df.drop(columns=["开始时间", "结束时间", "系数", "调整系数"], errors="ignore")
+        df = merged.drop(columns=["开始时间", "结束时间", "系数", "调整系数", "在目标时间段内"], errors="ignore")
         # ------------------------------
         # 核心计算逻辑
         # ------------------------------
