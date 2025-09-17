@@ -114,9 +114,19 @@ END_DATE = datetime(2025, 12, 31)  # 预测截止日期
 # 1. 数据加载与预处理函数
 # ------------------------------
 @st.cache_data(ttl=3600)
-def load_and_preprocess_data_from_df(df, coeff_df):  # 新增coeff_df参数
+def load_and_preprocess_data_from_df(df):
     """加载Excel数据并进行预处理，包含所有列的计算逻辑"""
     try:
+        # 在配置区域添加时间段系数定义
+        TIME_PERIODS = [
+            {"name": "october_late", "start": datetime(2025, 10, 15), "end": datetime(2025, 10, 31),
+             "coefficient": 0.95},
+            {"name": "november_early", "start": datetime(2025, 11, 1), "end": datetime(2025, 11, 15),
+             "coefficient": 0.91},
+            {"name": "november_late", "start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30),
+             "coefficient": 0.72},
+            {"name": "december", "start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.43}
+        ]
         # 检查必要的基础列（用于计算的原始数据）
         required_base_cols = [
             "MSKU", "品名", "店铺", "记录时间", "日均",
@@ -134,49 +144,7 @@ def load_and_preprocess_data_from_df(df, coeff_df):  # 新增coeff_df参数
                         "本地可用", "待检待上架量", "待交付"]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        # 系数调整逻辑优化
-        # ------------------------------
-        # 保留原始日均用于对比
-        df["原始日均"] = df["日均"].copy()
 
-        # 确保系数表时间格式正确
-        coeff_df["开始时间"] = pd.to_datetime(coeff_df["开始时间"]).dt.normalize()
-        coeff_df["结束时间"] = pd.to_datetime(coeff_df["结束时间"]).dt.normalize()
-
-        # 目标时间段定义
-        target_start = pd.to_datetime("2025-10-15").normalize()
-        target_end = pd.to_datetime("2025-12-31").normalize()
-        df["在目标时间段内"] = (df["记录时间"] >= target_start) & (df["记录时间"] <= target_end)
-
-        # 使用merge_asof进行时间范围匹配（核心优化点）
-        # 按MSKU和时间排序
-        df_sorted = df.sort_values(["MSKU", "记录时间"])
-        coeff_sorted = coeff_df.sort_values(["MSKU", "开始时间"])
-
-        # 精确匹配MSKU并找到符合时间范围的系数
-        merged = pd.merge_asof(
-            df_sorted,
-            coeff_sorted[["MSKU", "开始时间", "结束时间", "系数"]],
-            on="MSKU",
-            direction="backward",
-            allow_exact_matches=True
-        )
-
-        # 筛选出记录时间在系数生效范围内的数据
-        valid_coeff = (merged["记录时间"] >= merged["开始时间"]) & (merged["记录时间"] <= merged["结束时间"])
-
-        # 应用系数（仅在目标时间段且有有效系数时）
-        merged["调整系数"] = np.where(
-            merged["在目标时间段内"] & valid_coeff & ~merged["系数"].isna(),
-            merged["系数"],
-            1.0
-        )
-
-        # 计算调整后日均
-        merged["日均"] = (merged["原始日均"] * merged["调整系数"]).round(2)
-
-        # 清理临时列
-        df = merged.drop(columns=["开始时间", "结束时间", "系数", "调整系数", "在目标时间段内"], errors="ignore")
         # ------------------------------
         # 核心计算逻辑
         # ------------------------------
@@ -189,16 +157,64 @@ def load_and_preprocess_data_from_df(df, coeff_df):  # 新增coeff_df参数
                 df["FBA+AWD+在途库存"] + df["本地可用"] + df["待检待上架量"] + df["待交付"]
         ).round().astype(int)
 
-        # 3. 预计FBA+AWD+在途用完时间 = 记录时间 + FBA+AWD+在途库存/日均
+        # 3. 预计FBA+AWD+在途用完时间（修改部分）
         # 处理日均为0的情况，避免除以零错误
-        safe_avg_daily = df["日均"].replace(0, 0.1)  # 用0.1代替0，避免无限大
-        df["预计FBA+AWD+在途用完时间"] = df["记录时间"] + pd.to_timedelta(
-            df["FBA+AWD+在途库存"] / safe_avg_daily, unit='d'
+        safe_avg_daily = df["日均"].replace(0, 0.1)
+
+        # 新增：计算分阶段库存消耗的函数
+        def calculate_exhaust_date(row, stock_col):
+            record_date = row["记录时间"]
+            stock = row[stock_col]
+            base_avg = row["日均"] if row["日均"] > 0 else 0.1
+            remaining_stock = stock
+            current_date = record_date
+
+            if remaining_stock <= 0:
+                return record_date
+
+            # 阶段1: 记录日期到2025-10-14（系数1.0）
+            phase1_end = pd.Timestamp(2025, 10, 14)
+            if current_date <= phase1_end:
+                days_in_phase = (phase1_end - current_date).days + 1
+                sales_possible = base_avg * days_in_phase
+                if remaining_stock <= sales_possible:
+                    days_needed = remaining_stock / base_avg
+                    return current_date + pd.Timedelta(days=days_needed)
+                remaining_stock -= sales_possible
+                current_date = phase1_end + pd.Timedelta(days=1)
+
+            # 阶段2: 处理四个特殊时间段
+            for period in TIME_PERIODS:
+                if current_date > period["end"] or remaining_stock <= 0:
+                    continue
+
+                period_start = max(current_date, period["start"])
+                if period_start > period["end"]:
+                    continue
+
+                days_in_period = (period["end"] - period_start).days + 1
+                adjusted_avg = base_avg * period["coefficient"]
+                sales_possible = adjusted_avg * days_in_period
+
+                if remaining_stock <= sales_possible:
+                    days_needed = remaining_stock / adjusted_avg
+                    return period_start + pd.Timedelta(days=days_needed)
+
+                remaining_stock -= sales_possible
+                current_date = period["end"] + pd.Timedelta(days=1)
+
+            # 阶段3: 2026年1月1日之后（系数1.0）
+            days_needed = remaining_stock / base_avg
+            return current_date + pd.Timedelta(days=days_needed)
+
+        # 应用分阶段计算
+        df["预计FBA+AWD+在途用完时间"] = df.apply(
+            lambda row: calculate_exhaust_date(row, "FBA+AWD+在途库存"), axis=1
         )
 
-        # 4. 预计总库存用完 = 记录时间 + 全部总库存/日均（保留整数日期）
-        df["预计总库存用完"] = df["记录时间"] + pd.to_timedelta(
-            df["全部总库存"] / safe_avg_daily, unit='d'
+        # 4. 预计总库存用完时间（修改部分）
+        df["预计总库存用完"] = df.apply(
+            lambda row: calculate_exhaust_date(row, "全部总库存"), axis=1
         )
 
         # 5. 预计用完时间比目标时间多出来的天数
@@ -248,25 +264,64 @@ def load_and_preprocess_data_from_df(df, coeff_df):  # 新增coeff_df参数
             lambda row: compare_status(row["状态判断"], row["上周状态"]), axis=1
         )
 
-        # 8. FBA+AWD+在途滞销数量
-        # 计算目标日期前的可用天数
-        days_to_target = (TARGET_DATE - df["记录时间"]).dt.days
-        # 计算目标日期前可消耗的库存
-        consumable_before_target = days_to_target * df["日均"]
-        # 计算滞销数量
-        fba_excess = df["FBA+AWD+在途库存"] - consumable_before_target
-        df["FBA+AWD+在途滞销数量"] = np.where(
-            df["预计FBA+AWD+在途用完时间"] > TARGET_DATE,
-            np.maximum(fba_excess, 0),  # 取正值
-            0
+        # 8. FBA+AWD+在途滞销数量（修改部分）
+        def calculate_overstock(row, stock_col):
+            record_date = row["记录时间"]
+            stock = row[stock_col]
+            base_avg = row["日均"] if row["日均"] > 0 else 0.1
+            remaining_stock = stock
+            current_date = record_date
+            target_date = TARGET_DATE
+
+            # 计算到目标日期能卖出的库存
+            sold_by_target = 0
+
+            if current_date >= target_date or remaining_stock <= 0:
+                return 0
+
+            # 阶段1: 记录日期到2025-10-14
+            phase1_end = pd.Timestamp(2025, 10, 14)
+            if current_date <= phase1_end:
+                actual_end = min(phase1_end, target_date)
+                days_in_phase = (actual_end - current_date).days + 1
+                sales = base_avg * days_in_phase
+                sales = min(sales, remaining_stock)
+                sold_by_target += sales
+                remaining_stock -= sales
+                current_date = actual_end + pd.Timedelta(days=1)
+                if current_date > target_date or remaining_stock <= 0:
+                    return max(0, stock - sold_by_target)
+
+            # 阶段2: 处理四个特殊时间段
+            for period in TIME_PERIODS:
+                if current_date > target_date or remaining_stock <= 0:
+                    break
+
+                period_start = max(current_date, period["start"])
+                period_end = min(period["end"], target_date)
+
+                if period_start > period_end:
+                    continue
+
+                days_in_period = (period_end - period_start).days + 1
+                adjusted_avg = base_avg * period["coefficient"]
+                sales = adjusted_avg * days_in_period
+                sales = min(sales, remaining_stock)
+
+                sold_by_target += sales
+                remaining_stock -= sales
+                current_date = period_end + pd.Timedelta(days=1)
+
+            return max(0, stock - sold_by_target)
+
+        # 应用新的滞销计算
+        df["FBA+AWD+在途滞销数量"] = df.apply(
+            lambda row: calculate_overstock(row, "FBA+AWD+在途库存"), axis=1
         ).round().astype(int)
 
-        # 9. 总滞销库存
-        total_excess = df["全部总库存"] - consumable_before_target
-        df["总滞销库存"] = np.where(
-            df["预计总库存用完"] > TARGET_DATE,
-            np.maximum(total_excess, 0),  # 取正值
-            0
+        # 9. 总滞销库存（修改部分）
+        df["总滞销库存"] = df.apply(
+            lambda row: calculate_overstock(row, "全部总库存"), axis=1
         ).round().astype(int)
 
         # 10. 本地滞销数量 = 总滞销库存 - FBA+AWD+在途滞销数量
@@ -274,20 +329,75 @@ def load_and_preprocess_data_from_df(df, coeff_df):  # 新增coeff_df参数
         # 确保不会出现负数
         df["本地滞销数量"] = np.maximum(df["本地滞销数量"], 0)
 
-        # 11. 预计总库存需要消耗天数 = 全部总库存 / 日均（保留整数）
-        df["预计总库存需要消耗天数"] = (df["全部总库存"] / safe_avg_daily).round().astype(int)
+        # 11. 预计总库存需要消耗天数（修改部分）
+        def calculate_days_to_exhaust(row, stock_col):
+            record_date = row["记录时间"]
+            stock = row[stock_col]
+            base_avg = row["日均"] if row["日均"] > 0 else 0.1
+            remaining_stock = stock
+            current_date = record_date
+            total_days = 0
 
-        # 12. 清库存的目标日均
-        # 计算从记录时间到目标日期的天数
-        days_available = (TARGET_DATE - df["记录时间"]).dt.days
-        # 处理天数为0的情况
-        days_available = np.maximum(days_available, 1)  # 至少1天
-        # 计算目标日均
-        df["清库存的目标日均"] = np.where(
-            df["状态判断"] == "健康",
-            df["日均"],  # 健康状态使用当前日均
-            df["全部总库存"] / days_available  # 其他状态按目标日期计算
-        ).round(2)  # 保留两位小数
+            if remaining_stock <= 0:
+                return 0
+
+            # 阶段1: 记录日期到2025-10-14
+            phase1_end = pd.Timestamp(2025, 10, 14)
+            if current_date <= phase1_end:
+                days_in_phase = (phase1_end - current_date).days + 1
+                sales_possible = base_avg * days_in_phase
+                if remaining_stock <= sales_possible:
+                    return round(remaining_stock / base_avg)
+                total_days += days_in_phase
+                remaining_stock -= sales_possible
+                current_date = phase1_end + pd.Timedelta(days=1)
+
+            # 阶段2: 处理四个特殊时间段
+            for period in TIME_PERIODS:
+                if current_date > period["end"] or remaining_stock <= 0:
+                    continue
+
+                period_start = max(current_date, period["start"])
+                if period_start > period["end"]:
+                    continue
+
+                days_in_period = (period["end"] - period_start).days + 1
+                adjusted_avg = base_avg * period["coefficient"]
+                sales_possible = adjusted_avg * days_in_period
+
+                if remaining_stock <= sales_possible:
+                    total_days += remaining_stock / adjusted_avg
+                    return round(total_days)
+
+                total_days += days_in_period
+                remaining_stock -= sales_possible
+                current_date = period["end"] + pd.Timedelta(days=1)
+
+            # 阶段3: 2026年1月1日之后
+            total_days += remaining_stock / base_avg
+            return round(total_days)
+
+        df["预计总库存需要消耗天数"] = df.apply(
+            lambda row: calculate_days_to_exhaust(row, "全部总库存"), axis=1
+        )
+
+        # 12. 清库存的目标日均（修改部分）
+        def calculate_target_avg(row):
+            if row["状态判断"] == "健康":
+                return round(row["日均"], 2)
+
+            record_date = row["记录时间"]
+            total_stock = row["全部总库存"]
+            target_date = TARGET_DATE
+
+            if record_date >= target_date or total_stock <= 0:
+                return 0.0
+
+            # 计算到目标日期的总天数
+            total_days = (target_date - record_date).days + 1
+            return round(total_stock / total_days, 2)
+
+        df["清库存的目标日均"] = df.apply(calculate_target_avg, axis=1)
 
         # 排序
         df = df.sort_values("记录时间", ascending=False).reset_index(drop=True)
@@ -561,6 +671,7 @@ def render_store_status_table(current_data, prev_data):
         current_data,
         index="店铺",
         columns="状态判断",
+        values="MSKU",
         aggfunc="count",
         fill_value=0
     ).reindex(columns=["健康", "低滞销风险", "中滞销风险", "高滞销风险"], fill_value=0)
@@ -570,6 +681,7 @@ def render_store_status_table(current_data, prev_data):
         prev_data,
         index="店铺",
         columns="状态判断",
+        values="MSKU",
         aggfunc="count",
         fill_value=0
     ).reindex(columns=["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
@@ -1535,7 +1647,7 @@ def main():
         try:
             # 正确的Raw格式链接
             data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday.xlsx"
-            coeff_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/Coefficient.xlsx"  # 系数文件URL
+
             # 从URL读取数据
             response = requests.get(data_url)
             response.raise_for_status()  # 检查请求是否成功
@@ -1553,34 +1665,11 @@ def main():
             # 新增：调用预处理函数，执行计算逻辑
             # （包括生成"状态判断"等所有衍生列）
             # ------------------------------
-            # ------------------------------
-            # 新增：加载系数数据
-            # ------------------------------
-            coeff_response = requests.get(coeff_url)
-            coeff_response.raise_for_status()
-            coeff_excel = BytesIO(coeff_response.content)
-            coeff_df = pd.read_excel(
-                coeff_excel,
-                engine='openpyxl'
-            )
-
-            # 系数数据预处理（转换日期格式）
-            required_coeff_cols = ["MSKU", "开始时间", "结束时间", "系数"]
-            missing_coeff_cols = [col for col in required_coeff_cols if col not in coeff_df.columns]
-            if missing_coeff_cols:
-                st.error(f"系数文件缺少必要列：{', '.join(missing_coeff_cols)}")
-                st.stop()
-            coeff_df["开始时间"] = pd.to_datetime(coeff_df["开始时间"]).dt.normalize()
-            coeff_df["结束时间"] = pd.to_datetime(coeff_df["结束时间"]).dt.normalize()
-
-            # ------------------------------
-            # 调用预处理函数（传入系数数据用于调整日均）
-            # ------------------------------
-            # 修改预处理函数参数，接收系数数据
-            df = load_and_preprocess_data_from_df(current_data, coeff_df)  # 关键修改
-            if df is None:
+            df = load_and_preprocess_data_from_df(current_data)  # 关键修改：执行计算
+            if df is None:  # 处理预处理失败的情况
                 st.error("数据预处理失败，无法继续")
                 st.stop()
+
             # ------------------------------
             # 新增：根据用户权限筛选店铺
             # ------------------------------
