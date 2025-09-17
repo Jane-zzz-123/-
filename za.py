@@ -570,7 +570,6 @@ def render_store_status_table(current_data, prev_data):
         prev_data,
         index="店铺",
         columns="状态判断",
-        values="MSKU",
         aggfunc="count",
         fill_value=0
     ).reindex(columns=["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
