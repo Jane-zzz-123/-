@@ -132,39 +132,63 @@ PERIOD_COEFF_MAP = [
     {"start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30), "coeff_col": "11月16-30日系数"},
     {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coeff_col": "12月1-31日系数"}
 ]
+# ------------------------------
+# 新增：会话状态初始化函数（解决 Unresolved reference 错误）
+# ------------------------------
+def init_session_state():
+    """统一初始化所有会话状态，避免重复代码"""
+    # 页面分页状态
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = 1
+    if "current_status_page" not in st.session_state:
+        st.session_state.current_status_page = 1
+    # 系数编辑功能状态
+    if "show_coefficient_editor" not in st.session_state:
+        st.session_state.show_coefficient_editor = False
+    if "edited_df" not in st.session_state:
+        st.session_state.edited_df = None
+    if "needs_recalculation" not in st.session_state:
+        st.session_state.needs_recalculation = False
+    # 筛选状态
+    if "filter_status" not in st.session_state:
+        st.session_state.filter_status = None
+    # 权限相关状态（若未使用可保留，不影响）
+    if "allowed_stores" not in st.session_state:
+        st.session_state.allowed_stores = None  # 默认为None（管理员权限）
+
 def render_coefficient_editor(original_df):
     """渲染系数编辑表格，支持下载、上传、确认功能"""
     st.subheader("系数与日均调整")
     st.info("在此编辑产品的日均和时间段系数，确认后看板将使用新数据重新计算")
 
-    # 1. 筛选需要编辑的列（按您指定的字段）
+    # 1. 筛选需要编辑的列
     edit_cols = [
         "店铺", "记录时间", "MSKU", "日均", "7天日均", "14天日均", "28天日均",
         "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"
     ]
 
-    # 2. 初始化编辑数据（优先使用已上传的数据，否则用原始数据）
-    if "edited_df" in st.session_state:
-        edit_data = st.session_state.edited_df[edit_cols].copy()
-    else:
-        # 从原始数据中提取编辑列，去重（按MSKU和记录时间）
+    # 2. 初始化编辑数据（关键修改：确保刷新后保留编辑数据）
+    # 首次加载或无编辑数据时，从原始数据初始化
+    if "edited_df" not in st.session_state:
         edit_data = original_df[edit_cols].drop_duplicates(subset=["MSKU", "记录时间"]).copy()
-        # 确保系数列是数值类型
         coeff_cols = ["10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
         for col in coeff_cols:
             edit_data[col] = edit_data[col].astype(float)
+        # 存入session_state，确保刷新后不丢失
+        st.session_state.edited_df = edit_data
+    else:
+        # 从session_state读取已保存的编辑数据（即使刷新也能保留）
+        edit_data = st.session_state.edited_df[edit_cols].copy()
 
-    # 3. 显示可编辑表格（使用st.data_editor）
+    # 3. 显示可编辑表格（不变）
     edited_data = st.data_editor(
         edit_data,
-        num_rows="dynamic",  # 允许增删行
+        num_rows="dynamic",
         column_config={
-            # 配置系数列的编辑范围（0-2之间，步长0.01）
             "10月15-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
             "11月1-15日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
             "11月16-30日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
             "12月1-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
-            # 配置日均列（非负）
             "日均": st.column_config.NumberColumn(min_value=0),
             "7天日均": st.column_config.NumberColumn(min_value=0),
             "14天日均": st.column_config.NumberColumn(min_value=0),
@@ -173,7 +197,7 @@ def render_coefficient_editor(original_df):
         key="coefficient_editor"
     )
 
-    # 4. 下载功能（下载当前编辑的表格）
+    # 4. 下载功能（不变）
     csv = edited_data.to_csv(index=False, encoding="utf-8-sig")
     st.download_button(
         "💾 下载当前表格",
@@ -182,12 +206,11 @@ def render_coefficient_editor(original_df):
         mime="text/csv"
     )
 
-    # 5. 上传功能（上传修改后的表格）
+    # 5. 上传功能（不变，但确保更新session_state）
     uploaded_file = st.file_uploader("📂 上传修改后的表格", type=["csv", "xlsx"])
     if uploaded_file:
         try:
             if uploaded_file.name.endswith(".csv"):
-                # 多编码尝试
                 try:
                     uploaded_df = pd.read_csv(uploaded_file, encoding="gbk")
                 except:
@@ -195,12 +218,10 @@ def render_coefficient_editor(original_df):
             else:
                 uploaded_df = pd.read_excel(uploaded_file, engine="openpyxl")
 
-            # 校验上传的列是否符合要求
             missing_cols = [col for col in edit_cols if col not in uploaded_df.columns]
             if missing_cols:
                 st.error(f"上传的表格缺少必要列：{', '.join(missing_cols)}")
             else:
-                # 格式转换
                 if "记录时间" in uploaded_df.columns:
                     uploaded_df["记录时间"] = pd.to_datetime(uploaded_df["记录时间"], errors="coerce").dt.normalize()
                 numeric_edit_cols = ["日均", "7天日均", "14天日均", "28天日均",
@@ -211,19 +232,17 @@ def render_coefficient_editor(original_df):
 
                 st.success("表格上传成功，已更新编辑区数据")
                 edited_data = uploaded_df[edit_cols].copy()
-                # 关键修改：上传成功后立即更新session_state
-                st.session_state.edited_df = edited_data  # 新增这一行
+                # 关键：同步更新session_state
+                st.session_state.edited_df = edited_data
         except Exception as e:
             st.error(f"上传失败：{str(e)}")
 
-    # 6. 确认按钮（保存编辑后的数据，触发重新计算）
+    # 6. 确认按钮（不变）
     if st.button("✅ 确认并应用修改"):
-        # 保存编辑后的数据到session_state
         st.session_state.edited_df = edited_data
-        # 标记需要重新计算
         st.session_state.needs_recalculation = True
         st.success("修改已保存，看板将使用新数据重新计算")
-        st.rerun()  # 重新运行应用，加载新数据
+        st.rerun()
 
 # ------------------------------
 # 核心数据处理函数（支持运营编辑）
@@ -1789,37 +1808,97 @@ def render_stock_forecast_chart(data, msku):
     return fig
 
 # ------------------------------
-# 3. 主函数（页面布局）
-# ------------------------------
 def main():
-    # 初始化会话状态
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = 1
-    if "current_status_page" not in st.session_state:
-        st.session_state.current_status_page = 1
+    # 初始化所有会话状态（统一放在最开头）
+    init_session_state()
 
-    # 侧边栏内容（固定）
+    # ------------------------------
+    # 【关键重构】1. 主内容区顶部：数据加载+权限筛选（移出自侧边栏）
+    # ------------------------------
+    try:
+        # 1.1 从GitHub读取原始数据
+        data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday.xlsx"
+        response = requests.get(data_url)
+        response.raise_for_status()
+        excel_data = BytesIO(response.content)
+        current_data = pd.read_excel(
+            excel_data,
+            sheet_name="当前数据",
+            engine='openpyxl'
+        )
+
+        # 1.2 权限筛选（先筛选店铺，再处理编辑数据）
+        allowed_stores = st.session_state.get("allowed_stores")
+        if allowed_stores is not None:
+            current_data = current_data[current_data["店铺"].isin(allowed_stores)].copy()
+            if current_data.empty:
+                st.error(f"您有权限的店铺（{', '.join(allowed_stores)}）没有数据")
+                st.stop()
+
+    except Exception as e:
+        st.error(f"原始数据加载失败：{str(e)}")
+        try:
+            excel_data.seek(0)
+            xl = pd.ExcelFile(excel_data, engine='openpyxl')
+            st.error(f"Excel文件实际sheet：{xl.sheet_names}")
+        except:
+            pass
+        st.stop()
+
+    # ------------------------------
+    # 【关键顺序】2. 先合并编辑数据，再执行计算
+    # ------------------------------
+    # 2.1 合并原始数据与编辑数据（如果有编辑数据）
+    if st.session_state.edited_df is not None:
+        # 用唯一键合并，确保数据精准匹配
+        merged_data = current_data.merge(
+            st.session_state.edited_df,
+            on=["店铺", "记录时间", "MSKU"],
+            how="left",
+            suffixes=("_original", "_edited")
+        )
+
+        # 用编辑后的数据覆盖原始数据
+        update_cols = ["日均", "7天日均", "14天日均", "28天日均",
+                       "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
+        for col in update_cols:
+            # 优先用编辑值，没有则保留原始值
+            merged_data[col] = merged_data[f"{col}_edited"].fillna(merged_data[f"{col}_original"])
+
+        # 删除临时列
+        merged_data = merged_data.drop(
+            columns=[c for c in merged_data.columns if c.endswith(("_original", "_edited"))],
+            errors="ignore"  # 避免列不存在报错
+        )
+    else:
+        # 无编辑数据，直接用原始数据
+        merged_data = current_data.copy()
+
+    # 2.2 执行预处理计算（基于合并后的数据，含编辑系数）
+    df = load_and_preprocess_data_from_df(merged_data)
+    if df is None:
+        st.error("数据预处理失败")
+        st.stop()
+
+    # ------------------------------
+    # 3. 侧边栏（仅放静态信息，无数据加载逻辑）
+    # ------------------------------
     with st.sidebar:
         st.title("侧栏信息")
-        from datetime import datetime  # 正确导入方式
-        # 首先确保导入了需要的类
-        from datetime import datetime, timedelta  # 关键：导入timedelta
-        # 显示日期信息
-        # 计算当周周一的日期
-        today = datetime.now().date()
-        # weekday()返回0-6，其中0是周一，6是周日
-        # 如果今天是周一，直接使用今天；否则计算上一个周一
-        days_to_monday = today.weekday()  # 距离本周一的天数（0表示今天就是周一）
-        monday_of_week = today - timedelta(days=days_to_monday)
+        from datetime import datetime, timedelta
 
-        # 显示当周周一信息
+        # 日期信息
+        today = datetime.now().date()
+        days_to_monday = today.weekday()
+        monday_of_week = today - timedelta(days=days_to_monday)
         st.info(f"当周周一：{monday_of_week.strftime('%Y年%m月%d日')}")
 
-        # 显示目标日期和剩余天数
+        # 目标日期信息
         days_remaining = (TARGET_DATE.date() - monday_of_week).days
         st.info(f"目标消耗完成日期：{TARGET_DATE.strftime('%Y年%m月%d日')}")
         st.warning(f"距离目标日期剩余：{days_remaining}天")
-        # 添加MSKU滞销风险分类说明
+
+        # 风险说明
         st.subheader("MSKU滞销风险分类：")
         st.markdown("""
         - **健康**：预计总库存用完时间≤2025年12月1日；
@@ -1828,128 +1907,58 @@ def main():
         - **高滞销风险**：预计用完时间比目标时间多出来的天数>20天。
         """)
 
-        # 注释掉文件上传部分
-        # st.subheader("数据上传")
-        # uploaded_file = st.file_uploader("上传Excel文件", type=["xlsx"])
+        # 数据状态提示（仅显示结果，不加载数据）
+        st.success(f"数据加载成功！共{len(df)}条记录")
 
-        # 新增：直接读取GitHub仓库中的数据文件
-        st.subheader("数据加载中...")
-        try:
-            # 正确的Raw格式链接
-            data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday.xlsx"
-
-            # 从URL读取数据
-            response = requests.get(data_url)
-            response.raise_for_status()  # 检查请求是否成功
-            excel_data = BytesIO(response.content)
-            import pandas as pd  # 导入pandas库并命名为pd
-
-            # 只读取存在的"当前数据"sheet
-            current_data = pd.read_excel(
-                excel_data,
-                sheet_name="当前数据",
-                engine='openpyxl'  # 明确指定引擎
-            )
-
-            # ------------------------------
-            # 新增：调用预处理函数，执行计算逻辑
-            # （包括生成"状态判断"等所有衍生列）
-            # ------------------------------
-            df = load_and_preprocess_data_from_df(current_data)  # 关键修改：执行计算
-            if df is None:  # 处理预处理失败的情况
-                st.error("数据预处理失败，无法继续")
-                st.stop()
-
-            # ------------------------------
-            # 新增：根据用户权限筛选店铺
-            # ------------------------------
-            allowed_stores = st.session_state.get("allowed_stores")
-            if allowed_stores is not None:  # 非管理员（有店铺限制）
-                # 筛选df中"店铺"列属于allowed_stores的行
-                df = df[df["店铺"].isin(allowed_stores)].copy()
-                # 检查筛选后是否有数据
-                if df.empty:
-                    st.error(f"您有权限的店铺（{', '.join(allowed_stores)}）没有数据")
-                    st.stop()  # 无数据则停止运行
-
-            st.success("数据加载成功！")
-        except Exception as e:
-            st.error(f"数据加载失败：{str(e)}")
-            # 增加调试信息，帮助确认问题
-            try:
-                # 尝试获取文件中的所有sheet名称
-                excel_data.seek(0)
-                xl = pd.ExcelFile(excel_data, engine='openpyxl')
-                st.error(f"Excel文件中实际存在的sheet：{xl.sheet_names}")
-            except:
-                pass
-            st.stop()  # 加载失败则停止运行
-
-    # 主内容区标题
+    # ------------------------------
+    # 4. 主内容区：标题+编辑功能+看板
+    # ------------------------------
     st.title("年份品滞销风险分析仪表盘")
-    # ------------------------------
-    # 新增：系数编辑功能（插入此处）
-    # ------------------------------
-    # 1. 初始化会话状态（用于控制编辑表格显示/隐藏、存储编辑后的数据）
-    if "show_coefficient_editor" not in st.session_state:
-        st.session_state.show_coefficient_editor = False
-    if "edited_df" not in st.session_state:
-        st.session_state.edited_df = None
-    if "needs_recalculation" not in st.session_state:
-        st.session_state.needs_recalculation = False
 
-    # 2. 系数编辑入口按钮（放在仪表盘标题下方，显眼位置）
-    col_edit, col_empty = st.columns([1, 4])  # 左对齐按钮
+    # 4.1 系数编辑功能（原逻辑保留，仅修改数据来源）
+    col_edit, col_empty = st.columns([1, 4])
     with col_edit:
         if st.button("🔐 运营数据调整", key="edit_btn"):
             st.session_state.show_coefficient_editor = not st.session_state.show_coefficient_editor
 
-    # 3. 渲染系数编辑表格（仅当开关打开时显示）
     if st.session_state.show_coefficient_editor:
-        # 定义编辑表格所需的列（按您的需求）
         edit_cols = [
             "店铺", "记录时间", "MSKU", "日均", "7天日均", "14天日均", "28天日均",
             "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"
         ]
 
-        # 3.1 准备编辑数据（优先用已编辑的数据，否则用原始数据）
+        # 准备编辑数据（从合并后的df提取，而非原始数据）
         if st.session_state.edited_df is not None:
-            # 确保编辑后的数据包含所有必要列
             edited_data = st.session_state.edited_df[edit_cols].copy()
         else:
-            # 从原始数据中提取编辑列，按MSKU+记录时间去重（避免重复行）
             edited_data = df[edit_cols].drop_duplicates(subset=["MSKU", "记录时间"]).copy()
-            # 确保系数列为数值类型（避免编辑时出错）
             coeff_cols = ["10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
             for col in coeff_cols:
                 edited_data[col] = edited_data[col].astype(float)
 
-        # 3.2 显示可编辑表格（Streamlit原生编辑组件）
+        # 编辑表格（原逻辑不变）
         st.subheader("运营数据调整（日均+时间段系数）")
         st.info("可直接修改表格数据，或下载模板编辑后上传；确认后看板将重新计算结果")
 
         edited_data = st.data_editor(
             edited_data,
-            num_rows="dynamic",  # 允许运营增删行
+            num_rows="dynamic",
             column_config={
-                # 系数列限制：0-2之间，步长0.01（避免不合理值）
                 "10月15-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01, format="%.2f"),
                 "11月1-15日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01, format="%.2f"),
                 "11月16-30日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01, format="%.2f"),
                 "12月1-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01, format="%.2f"),
-                # 日均列限制：非负（销量不能为负）
                 "日均": st.column_config.NumberColumn(min_value=0, format="%.2f"),
                 "7天日均": st.column_config.NumberColumn(min_value=0, format="%.2f"),
                 "14天日均": st.column_config.NumberColumn(min_value=0, format="%.2f"),
                 "28天日均": st.column_config.NumberColumn(min_value=0, format="%.2f"),
-                # 日期列格式优化
                 "记录时间": st.column_config.DateColumn(format="YYYY-MM-DD"),
             },
             use_container_width=True,
             key="data_editor"
         )
 
-        # 3.3 下载功能（下载当前编辑的表格作为模板/备份）
+        # 下载功能（原逻辑不变）
         csv = edited_data.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
             label="📥 下载当前数据",
@@ -1959,71 +1968,52 @@ def main():
             key="download_edit"
         )
 
-        # 3.4 上传功能（支持上传编辑后的表格）
+        # 上传功能（修复编码问题）
         uploaded_file = st.file_uploader("📤 上传修改后的表格", type=["csv", "xlsx"], key="upload_edit")
         if uploaded_file:
             try:
-                # 读取上传的文件
                 if uploaded_file.name.endswith(".csv"):
-                    uploaded_df = pd.read_csv(uploaded_file)
+                    # 多编码尝试（解决utf-8/gbk问题）
+                    try:
+                        uploaded_df = pd.read_csv(uploaded_file, encoding="gbk")
+                    except:
+                        uploaded_df = pd.read_csv(uploaded_file, encoding="utf-8")
                 else:
                     uploaded_df = pd.read_excel(uploaded_file, engine="openpyxl")
-                # 校验列是否完整
+
                 missing_cols = [col for col in edit_cols if col not in uploaded_df.columns]
                 if missing_cols:
                     st.error(f"上传文件缺少必要列：{', '.join(missing_cols)}")
                 else:
-                    # 格式转换（确保日期和数值类型正确）
                     uploaded_df["记录时间"] = pd.to_datetime(uploaded_df["记录时间"]).dt.normalize()
                     for col in coeff_cols + ["日均", "7天日均", "14天日均", "28天日均"]:
                         uploaded_df[col] = pd.to_numeric(uploaded_df[col], errors="coerce").fillna(0)
-                    # 更新编辑区数据
                     edited_data = uploaded_df[edit_cols].copy()
                     st.success("上传成功！已更新编辑区数据")
             except Exception as e:
                 st.error(f"上传失败：{str(e)}")
 
-        # 3.5 确认按钮（保存编辑数据并触发重新计算）
+        # 确认按钮（原逻辑不变）
         if st.button("✅ 确认修改并刷新看板", key="confirm_edit"):
-            # 保存编辑后的数据到会话状态
             st.session_state.edited_df = edited_data
-            # 标记需要重新计算
-            st.session_state.needs_recalculation = True
-            # 关闭编辑表格
             st.session_state.show_coefficient_editor = False
             st.success("修改已保存，看板正在重新计算...")
-            st.rerun()  # 重新运行应用，加载新数据
+            st.rerun()
 
-    # 初始化session_state存储筛选状态
+    # ------------------------------
+    # 5. 后续筛选+看板渲染逻辑（保持不变）
+    # ------------------------------
+    # 初始化筛选状态
     if "filter_status" not in st.session_state:
         st.session_state.filter_status = None
     if "current_page" not in st.session_state:
         st.session_state.current_page = 1
-    # 新增：应用编辑后的数据（关键！替换原始df）
-    # ------------------------------
-    if st.session_state.needs_recalculation and st.session_state.edited_df is not None:
-        # 合并原始数据与编辑后的数据（按MSKU+记录时间匹配）
-        df = df.merge(
-            st.session_state.edited_df,
-            on=["店铺", "记录时间", "MSKU"],
-            how="left",
-            suffixes=("_original", "_edited")
-        )
-        # 用编辑后的数据覆盖原始数据（优先保留编辑值，缺失则用原始值）
-        update_cols = ["日均", "7天日均", "14天日均", "28天日均",
-                      "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
-        for col in update_cols:
-            df[col] = df[f"{col}_edited"].fillna(df[f"{col}_original"])
-        # 删除临时列
-        df = df.drop(columns=[c for c in df.columns if c.endswith(("_original", "_edited"))])
-        # 重新执行预处理计算（基于编辑后的数据）
-        df = load_and_preprocess_data_from_df(df)
-        # 重置重新计算标记
-        st.session_state.needs_recalculation = False
 
     # 获取所有记录时间并排序
     all_dates = sorted(df["记录时间"].unique())
     latest_date = all_dates[-1] if all_dates else None
+
+    # （此处接你的筛选+看板渲染代码）
 
     # ------------------------------
     # 第一部分：整体风险分析
