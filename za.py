@@ -133,19 +133,10 @@ PERIOD_COEFF_MAP = [
     {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coeff_col": "12月1-31日系数"}
 ]
 
-# 3. 动态缓存键生成函数（编辑数据后自动失效）
-def get_data_hash(df):
-    if df is None or df.empty:
-        return "empty_data"
-    # 结合数据内容+运营编辑标记生成唯一哈希
-    df_str = df.to_csv(index=False).encode("utf-8")
-    edit_flag = str(session_state.get("needs_recalculation", False))  # 编辑触发标记
-    return hashlib.md5(df_str + edit_flag.encode()).hexdigest()
-
 # ------------------------------
 # 核心数据处理函数（支持运营编辑）
 # ------------------------------
-@st.cache_data(ttl=3600, key_func=lambda df: get_data_hash(df))  # 动态缓存适配
+@st.cache_data(ttl=3600)  # 移除key_func参数，使用默认缓存逻辑
 def load_and_preprocess_data_from_df(df):
     """加载Excel数据并进行预处理，包含所有列的计算逻辑（支持运营编辑日均/系数）"""
     try:
