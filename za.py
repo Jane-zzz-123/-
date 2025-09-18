@@ -132,6 +132,98 @@ PERIOD_COEFF_MAP = [
     {"start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30), "coeff_col": "11月16-30日系数"},
     {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coeff_col": "12月1-31日系数"}
 ]
+def render_coefficient_editor(original_df):
+    """渲染系数编辑表格，支持下载、上传、确认功能"""
+    st.subheader("系数与日均调整")
+    st.info("在此编辑产品的日均和时间段系数，确认后看板将使用新数据重新计算")
+
+    # 1. 筛选需要编辑的列（按您指定的字段）
+    edit_cols = [
+        "店铺", "记录时间", "MSKU", "日均", "7天日均", "14天日均", "28天日均",
+        "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"
+    ]
+
+    # 2. 初始化编辑数据（优先使用已上传的数据，否则用原始数据）
+    if "edited_df" in st.session_state:
+        edit_data = st.session_state.edited_df[edit_cols].copy()
+    else:
+        # 从原始数据中提取编辑列，去重（按MSKU和记录时间）
+        edit_data = original_df[edit_cols].drop_duplicates(subset=["MSKU", "记录时间"]).copy()
+        # 确保系数列是数值类型
+        coeff_cols = ["10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
+        for col in coeff_cols:
+            edit_data[col] = edit_data[col].astype(float)
+
+    # 3. 显示可编辑表格（使用st.data_editor）
+    edited_data = st.data_editor(
+        edit_data,
+        num_rows="dynamic",  # 允许增删行
+        column_config={
+            # 配置系数列的编辑范围（0-2之间，步长0.01）
+            "10月15-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
+            "11月1-15日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
+            "11月16-30日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
+            "12月1-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
+            # 配置日均列（非负）
+            "日均": st.column_config.NumberColumn(min_value=0),
+            "7天日均": st.column_config.NumberColumn(min_value=0),
+            "14天日均": st.column_config.NumberColumn(min_value=0),
+            "28天日均": st.column_config.NumberColumn(min_value=0),
+        },
+        key="coefficient_editor"
+    )
+
+    # 4. 下载功能（下载当前编辑的表格）
+    csv = edited_data.to_csv(index=False, encoding="utf-8-sig")
+    st.download_button(
+        "💾 下载当前表格",
+        data=csv,
+        file_name="系数调整表格.csv",
+        mime="text/csv"
+    )
+
+    # 5. 上传功能（上传修改后的表格）
+    uploaded_file = st.file_uploader("📂 上传修改后的表格", type=["csv", "xlsx"])
+    if uploaded_file:
+        try:
+            if uploaded_file.name.endswith(".csv"):
+                # 多编码尝试
+                try:
+                    uploaded_df = pd.read_csv(uploaded_file, encoding="gbk")
+                except:
+                    uploaded_df = pd.read_csv(uploaded_file, encoding="utf-8")
+            else:
+                uploaded_df = pd.read_excel(uploaded_file, engine="openpyxl")
+
+            # 校验上传的列是否符合要求
+            missing_cols = [col for col in edit_cols if col not in uploaded_df.columns]
+            if missing_cols:
+                st.error(f"上传的表格缺少必要列：{', '.join(missing_cols)}")
+            else:
+                # 格式转换
+                if "记录时间" in uploaded_df.columns:
+                    uploaded_df["记录时间"] = pd.to_datetime(uploaded_df["记录时间"], errors="coerce").dt.normalize()
+                numeric_edit_cols = ["日均", "7天日均", "14天日均", "28天日均",
+                                     "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
+                for col in numeric_edit_cols:
+                    if col in uploaded_df.columns:
+                        uploaded_df[col] = pd.to_numeric(uploaded_df[col], errors="coerce").fillna(0)
+
+                st.success("表格上传成功，已更新编辑区数据")
+                edited_data = uploaded_df[edit_cols].copy()
+                # 关键修改：上传成功后立即更新session_state
+                st.session_state.edited_df = edited_data  # 新增这一行
+        except Exception as e:
+            st.error(f"上传失败：{str(e)}")
+
+    # 6. 确认按钮（保存编辑后的数据，触发重新计算）
+    if st.button("✅ 确认并应用修改"):
+        # 保存编辑后的数据到session_state
+        st.session_state.edited_df = edited_data
+        # 标记需要重新计算
+        st.session_state.needs_recalculation = True
+        st.success("修改已保存，看板将使用新数据重新计算")
+        st.rerun()  # 重新运行应用，加载新数据
 
 # ------------------------------
 # 核心数据处理函数（支持运营编辑）
@@ -368,98 +460,7 @@ def load_and_preprocess_data_from_df(df):
         return None
 
 
-def render_coefficient_editor(original_df):
-    """渲染系数编辑表格，支持下载、上传、确认功能"""
-    st.subheader("系数与日均调整")
-    st.info("在此编辑产品的日均和时间段系数，确认后看板将使用新数据重新计算")
 
-    # 1. 筛选需要编辑的列（按您指定的字段）
-    edit_cols = [
-        "店铺", "记录时间", "MSKU", "日均", "7天日均", "14天日均", "28天日均",
-        "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"
-    ]
-
-    # 2. 初始化编辑数据（优先使用已上传的数据，否则用原始数据）
-    if "edited_df" in st.session_state:
-        edit_data = st.session_state.edited_df[edit_cols].copy()
-    else:
-        # 从原始数据中提取编辑列，去重（按MSKU和记录时间）
-        edit_data = original_df[edit_cols].drop_duplicates(subset=["MSKU", "记录时间"]).copy()
-        # 确保系数列是数值类型
-        coeff_cols = ["10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
-        for col in coeff_cols:
-            edit_data[col] = edit_data[col].astype(float)
-
-    # 3. 显示可编辑表格（使用st.data_editor）
-    edited_data = st.data_editor(
-        edit_data,
-        num_rows="dynamic",  # 允许增删行
-        column_config={
-            # 配置系数列的编辑范围（0-2之间，步长0.01）
-            "10月15-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
-            "11月1-15日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
-            "11月16-30日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
-            "12月1-31日系数": st.column_config.NumberColumn(min_value=0, max_value=2, step=0.01),
-            # 配置日均列（非负）
-            "日均": st.column_config.NumberColumn(min_value=0),
-            "7天日均": st.column_config.NumberColumn(min_value=0),
-            "14天日均": st.column_config.NumberColumn(min_value=0),
-            "28天日均": st.column_config.NumberColumn(min_value=0),
-        },
-        key="coefficient_editor"
-    )
-
-    # 4. 下载功能（下载当前编辑的表格）
-    csv = edited_data.to_csv(index=False, encoding="utf-8-sig")
-    st.download_button(
-        "💾 下载当前表格",
-        data=csv,
-        file_name="系数调整表格.csv",
-        mime="text/csv"
-    )
-
-    # 5. 上传功能（上传修改后的表格）
-    uploaded_file = st.file_uploader("📂 上传修改后的表格", type=["csv", "xlsx"])
-    if uploaded_file:
-        try:
-            if uploaded_file.name.endswith(".csv"):
-                # 关键修改：优先尝试gbk编码（兼容中文Windows文件），失败再试utf-8
-                try:
-                    uploaded_df = pd.read_csv(uploaded_file, encoding="gbk")
-                except:
-                    uploaded_df = pd.read_csv(uploaded_file, encoding="utf-8")
-            else:
-                # Excel文件一般无需指定编码，pandas会自动识别
-                uploaded_df = pd.read_excel(uploaded_file, engine="openpyxl")
-
-            # 校验上传的列是否符合要求
-            missing_cols = [col for col in edit_cols if col not in uploaded_df.columns]
-            if missing_cols:
-                st.error(f"上传的表格缺少必要列：{', '.join(missing_cols)}")
-            else:
-                # 补充：确保日期列和数值列格式正确（避免编辑后格式错乱）
-                if "记录时间" in uploaded_df.columns:
-                    uploaded_df["记录时间"] = pd.to_datetime(uploaded_df["记录时间"], errors="coerce").dt.normalize()
-                # 数值列（日均+系数）强制转换为数值类型
-                numeric_edit_cols = ["日均", "7天日均", "14天日均", "28天日均",
-                                     "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
-                for col in numeric_edit_cols:
-                    if col in uploaded_df.columns:
-                        uploaded_df[col] = pd.to_numeric(uploaded_df[col], errors="coerce").fillna(0)
-
-                st.success("表格上传成功，已更新编辑区数据")
-                edited_data = uploaded_df[edit_cols].copy()
-        except Exception as e:
-            st.error(f"上传失败：{str(e)}")
-
-    # 6. 确认按钮（保存编辑后的数据，触发重新计算）
-    if st.button("✅ 确认并应用修改"):
-        # 保存编辑后的数据到session_state
-        st.session_state.edited_df = edited_data
-        # 标记需要重新计算
-        st.session_state.needs_recalculation = True
-        st.success("修改已保存，看板将使用新数据重新计算")
-        st.rerun()  # 重新运行应用，加载新数据
 
 def get_week_data(df, target_date):
     """获取指定日期的数据"""
