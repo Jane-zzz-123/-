@@ -1133,38 +1133,46 @@ def render_status_change_table(data, page=1, page_size=30):
         st.markdown("<p style='color:#666'>无数据可展示</p>", unsafe_allow_html=True)
         return 0
 
-    # 定义要显示的列
+    # 核心修改：在display_cols中新增8个列（4个系数+4个调整后日均）
     display_cols = [
-        "MSKU", "品名", "店铺", "记录时间", "日均", "7天日均", "14天日均", "28天日均",
+        "MSKU", "品名", "店铺", "记录时间",
+        # 基础日均列（保留原逻辑）
+        "日均", "7天日均", "14天日均", "28天日均",
+        # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
+        "10月15-31日系数", "10月15-31日调整后日均",
+        "11月1-15日系数", "11月1-15日调整后日均",
+        "11月16-30日系数", "11月16-30日调整后日均",
+        "12月1-31日系数", "12月1-31日调整后日均",
+        # 原有其他列（保持不变）
         "FBA+AWD+在途库存","本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
         "状态判断", "清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
     ]
 
-    # 确保所有列都存在
+    # 确保所有列都存在（自动过滤数据中没有的列，新增列会被自动纳入）
     available_cols = [col for col in display_cols if col in data.columns]
     table_data = data[available_cols].copy()
     total_rows = len(table_data)
 
-    # 计算分页
+    # 计算分页（保持原逻辑，新增列不影响分页）
     total_pages = ceil(total_rows / page_size)
     start_idx = (page - 1) * page_size
     end_idx = min(start_idx + page_size, total_rows)
     paginated_data = table_data.iloc[start_idx:end_idx].copy()
 
-    # 格式化日期
+    # 格式化日期（保持原逻辑，不影响新增列）
     date_cols = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
     for col in date_cols:
         if col in paginated_data.columns:
             paginated_data[col] = pd.to_datetime(paginated_data[col]).dt.strftime("%Y-%m-%d")
 
-    # 添加状态颜色
+    # 添加状态颜色（保持原逻辑）
     if "状态判断" in paginated_data.columns:
         paginated_data["状态判断"] = paginated_data["状态判断"].apply(
             lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
         )
 
-    # 添加环比上周库存滞销情况变化颜色
+    # 添加环比上周库存滞销情况变化颜色（保持原逻辑）
     if "环比上周库存滞销情况变化" in paginated_data.columns:
         def color_status_change(x):
             if x == "改善":
@@ -1176,10 +1184,10 @@ def render_status_change_table(data, page=1, page_size=30):
 
         paginated_data["环比上周库存滞销情况变化"] = paginated_data["环比上周库存滞销情况变化"].apply(color_status_change)
 
-    # 显示表格
+    # 显示表格（保持原逻辑，新增列会自动渲染）
     st.markdown(paginated_data.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-    # 显示分页按钮
+    # 显示分页按钮（保持原逻辑）
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
         if page > 1:
@@ -2437,24 +2445,32 @@ def main():
     # 2.4 店铺与状态变化联合分析
     st.subheader("2.4 店铺与状态变化联合分析")
     if df is not None and not df.empty:
-        # 店铺筛选器
+        # 店铺筛选器（保持原逻辑）
         all_stores = sorted(df["店铺"].unique())
         selected_analysis_store = st.selectbox(
             "选择店铺进行联合分析",
             options=["全部"] + all_stores
         )
 
-        # 筛选数据
+        # 筛选数据（保持原逻辑）
         analysis_data = df.copy()
         if selected_analysis_store != "全部":
             analysis_data = analysis_data[analysis_data["店铺"] == selected_analysis_store]
 
-        # 按店铺和MSKU进行排序
+        # 按店铺和MSKU进行排序（保持原逻辑）
         analysis_data = analysis_data.sort_values(by=["店铺", "MSKU"])
 
-        # 定义要显示和下载的列 - 移除"上周期状态"或替换为实际存在的列名
+        # 核心修改1：在display_columns中新增8个列（4个系数+4个调整后日均）
         display_columns = [
-            "MSKU", "品名", "店铺", "日均", "7天日均", "14天日均", "28天日均",
+            "MSKU", "品名", "店铺",
+            # 基础日均列（保留原逻辑）
+            "日均", "7天日均", "14天日均", "28天日均",
+            # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
+            "10月15-31日系数", "10月15-31日调整后日均",
+            "11月1-15日系数", "11月1-15日调整后日均",
+            "11月16-30日系数", "11月16-30日调整后日均",
+            "12月1-31日系数", "12月1-31日调整后日均",
+            # 原有其他列（保持不变）
             "FBA+AWD+在途库存", "本地可用",
             "全部总库存", "预计FBA+AWD+在途用完时间",
             "预计总库存用完", "状态判断", "清库存的目标日均",
@@ -2463,12 +2479,11 @@ def main():
             "环比上周库存滞销情况变化"
         ]
 
-        # 可选：检查并添加数据中实际存在的类似列
-        # 如果你有类似"上期状态"这样的列，可以添加进来
+        # 可选：检查并添加数据中实际存在的类似列（保持原逻辑）
         # if "上期状态" in analysis_data.columns:
         #     display_columns.insert(5, "上期状态")
 
-        # 显示状态变化表
+        # 显示状态变化表（保持原逻辑，自动适配新增列）
         render_status_change_table(
             analysis_data,
             page=st.session_state.current_status_page,
@@ -2477,11 +2492,17 @@ def main():
 
         # 添加下载按钮（下载筛选后的所有数据）
         if not analysis_data.empty:
-            # 准备要下载的数据（只包含显示的列）
-            # 在准备下载数据前，添加完整的列名检查和处理逻辑
-            # 1. 定义预期的列名列表（根据最新修改）
+            # 核心修改2：在expected_columns中新增8个列（与display_columns同步）
             expected_columns = [
-                "MSKU", "品名", "店铺","记录时间", "日均", "7天日均", "14天日均", "28天日均",
+                "MSKU", "品名", "店铺", "记录时间",
+                # 基础日均列
+                "日均", "7天日均", "14天日均", "28天日均",
+                # 新增：四个时间段的系数+调整后日均
+                "10月15-31日系数", "10月15-31日调整后日均",
+                "11月1-15日系数", "11月1-15日调整后日均",
+                "11月16-30日系数", "11月16-30日调整后日均",
+                "12月1-31日系数", "12月1-31日调整后日均",
+                # 原有其他列
                 "FBA+AWD+在途库存", "本地可用",
                 "全部总库存", "预计FBA+AWD+在途用完时间",
                 "预计总库存用完", "状态判断", "清库存的目标日均",
@@ -2490,40 +2511,37 @@ def main():
                 "环比上周库存滞销情况变化"
             ]
 
-            # 2. 检查数据中实际存在的列
+            # 2. 检查数据中实际存在的列（保持原逻辑）
             filtered_data = analysis_data.copy()
             actual_columns = filtered_data.columns.tolist()
 
-            # 3. 找出存在的有效列和缺失的列
+            # 3. 找出存在的有效列和缺失的列（保持原逻辑，自动包含新增列）
             valid_columns = [col for col in expected_columns if col in actual_columns]
             missing_columns = [col for col in expected_columns if col not in actual_columns]
 
-            # 4. 显示缺失列的警告信息
+            # 4. 显示缺失列的警告信息（保持原逻辑）
             if missing_columns:
                 st.warning(f"数据中缺少以下列，已自动跳过：{', '.join(missing_columns)}")
-                # 可以在这里添加日志记录，方便排查数据问题
-                # import logging
-                # logging.warning(f"Missing columns: {', '.join(missing_columns)}")
 
-            # 5. 确保至少有一列可用于下载
+            # 5. 确保至少有一列可用于下载（保持原逻辑）
             if valid_columns:
                 download_data = filtered_data[valid_columns]
             else:
                 st.error("没有找到有效的列用于生成下载数据，请检查数据格式是否正确")
                 download_data = pd.DataFrame()  # 创建空DataFrame避免后续错误
 
-            # 格式化日期列
+            # 格式化日期列（保持原逻辑）
             if "记录时间" in download_data.columns:
                 download_data["记录时间"] = pd.to_datetime(download_data["记录时间"]).dt.strftime("%Y-%m-%d")
 
-            # 生成CSV
+            # 生成CSV（保持原逻辑）
             csv = download_data.to_csv(index=False, encoding='utf-8-sig')
 
-            # 构建文件名
+            # 构建文件名（保持原逻辑）
             store_part = selected_analysis_store if selected_analysis_store != "全部" else "所有店铺"
             file_name = f"店铺状态变化联合分析_{store_part}.csv"
 
-            # 下载按钮
+            # 下载按钮（保持原逻辑）
             st.download_button(
                 label="下载筛选结果 (CSV)",
                 data=csv,
@@ -2537,72 +2555,72 @@ def main():
     # 2.5 单个产品详细分析
     st.subheader("2.5 单个产品详细分析")
     if df is not None and not df.empty:
-        # 获取所有MSKU并排序
+        # 获取所有MSKU并排序（保持原逻辑）
         all_mskus = sorted(df["MSKU"].unique())
 
-        # 添加搜索框
+        # 添加搜索框（保持原逻辑）
         search_term = st.text_input(
             "搜索产品（MSKU或品名）",
             placeholder="输入关键词搜索..."
         )
 
-        # 根据搜索词过滤产品
+        # 根据搜索词过滤产品（保持原逻辑）
         if search_term:
-            # 转换为小写以实现不区分大小写的搜索
             search_lower = search_term.lower()
-
-            # 获取包含搜索词的MSKU
             filtered_mskus = []
             for msku in all_mskus:
-                # 获取该MSKU的品名
                 product_names = df[df["MSKU"] == msku]["品名"].unique()
-                # 检查MSKU或品名是否包含搜索词
                 if (search_lower in str(msku).lower() or
                         any(search_lower in str(name).lower() for name in product_names)):
                     filtered_mskus.append(msku)
-
-            # 如果没有搜索结果
             if not filtered_mskus:
                 st.info(f"没有找到包含 '{search_term}' 的产品，请尝试其他关键词")
-                filtered_mskus = all_mskus  # 显示所有产品
+                filtered_mskus = all_mskus
         else:
-            # 如果没有搜索词，显示所有产品
             filtered_mskus = all_mskus
 
-        # 产品筛选器（只显示筛选后的产品）
+        # 产品筛选器（保持原逻辑）
         selected_analysis_msku = st.selectbox(
             "选择产品进行详细分析",
             options=filtered_mskus
         )
 
         if selected_analysis_msku:
-            # 获取该产品的所有记录
+            # 获取该产品的所有记录（保持原逻辑）
             product_history_data = df[df["MSKU"] == selected_analysis_msku].sort_values("记录时间", ascending=False)
 
-            # 定义要显示的列
+            # 核心修改：在display_cols中新增8个列（4个系数+4个调整后日均）
             display_cols = [
-                "MSKU", "品名", "店铺", "记录时间", "日均", "7天日均", "14天日均", "28天日均",
+                "MSKU", "品名", "店铺", "记录时间",
+                # 基础日均列（保留原逻辑）
+                "日均", "7天日均", "14天日均", "28天日均",
+                # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
+                "10月15-31日系数", "10月15-31日调整后日均",
+                "11月1-15日系数", "11月1-15日调整后日均",
+                "11月16-30日系数", "11月16-30日调整后日均",
+                "12月1-31日系数", "12月1-31日调整后日均",
+                # 原有其他列（保持不变）
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
                 "状态判断", "清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
             ]
 
-            # 筛选并格式化表格数据
+            # 筛选并格式化表格数据（保持原逻辑，自动适配新增列）
             table_data = product_history_data[display_cols].copy()
 
-            # 格式化日期列
+            # 格式化日期列（保持原逻辑）
             date_cols = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
             for col in date_cols:
                 if col in table_data.columns:
                     table_data[col] = pd.to_datetime(table_data[col]).dt.strftime("%Y-%m-%d")
 
-            # 添加状态颜色
+            # 添加状态颜色（保持原逻辑）
             if "状态判断" in table_data.columns:
                 table_data["状态判断"] = table_data["状态判断"].apply(
                     lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
                 )
 
-            # 添加环比上周库存滞销情况变化颜色
+            # 添加环比上周库存滞销情况变化颜色（保持原逻辑）
             if "环比上周库存滞销情况变化" in table_data.columns:
                 def color_status_change(x):
                     if x == "改善":
@@ -2612,13 +2630,14 @@ def main():
                     else:  # 维持不变
                         return f"<span style='color:#000000; font-weight:bold;'>{x}</span>"
 
-                table_data["环比上周库存滞销情况变化"] = table_data["环比上周库存滞销情况变化"].apply(color_status_change)
+                table_data["环比上周库存滞销情况变化"] = table_data["环比上周库存滞销情况变化"].apply(
+                    color_status_change)
 
-            # 显示产品历史数据表格
+            # 显示产品历史数据表格（保持原逻辑）
             st.subheader("产品历史数据")
             st.markdown(table_data.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-            # 生成库存预测对比图
+            # 生成库存预测对比图（已在之前修改，含分阶段系数）
             forecast_chart = render_product_detail_chart(df, selected_analysis_msku)
             st.plotly_chart(forecast_chart, use_container_width=True)
     else:
