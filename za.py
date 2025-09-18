@@ -423,13 +423,30 @@ def render_coefficient_editor(original_df):
     if uploaded_file:
         try:
             if uploaded_file.name.endswith(".csv"):
-                uploaded_df = pd.read_csv(uploaded_file)
+                # 关键修改：优先尝试gbk编码（兼容中文Windows文件），失败再试utf-8
+                try:
+                    uploaded_df = pd.read_csv(uploaded_file, encoding="gbk")
+                except:
+                    uploaded_df = pd.read_csv(uploaded_file, encoding="utf-8")
             else:
-                uploaded_df = pd.read_excel(uploaded_file)
+                # Excel文件一般无需指定编码，pandas会自动识别
+                uploaded_df = pd.read_excel(uploaded_file, engine="openpyxl")
+
             # 校验上传的列是否符合要求
-            if not set(edit_cols).issubset(uploaded_df.columns):
-                st.error(f"上传的表格缺少必要列，请确保包含：{', '.join(edit_cols)}")
+            missing_cols = [col for col in edit_cols if col not in uploaded_df.columns]
+            if missing_cols:
+                st.error(f"上传的表格缺少必要列：{', '.join(missing_cols)}")
             else:
+                # 补充：确保日期列和数值列格式正确（避免编辑后格式错乱）
+                if "记录时间" in uploaded_df.columns:
+                    uploaded_df["记录时间"] = pd.to_datetime(uploaded_df["记录时间"], errors="coerce").dt.normalize()
+                # 数值列（日均+系数）强制转换为数值类型
+                numeric_edit_cols = ["日均", "7天日均", "14天日均", "28天日均",
+                                     "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
+                for col in numeric_edit_cols:
+                    if col in uploaded_df.columns:
+                        uploaded_df[col] = pd.to_numeric(uploaded_df[col], errors="coerce").fillna(0)
+
                 st.success("表格上传成功，已更新编辑区数据")
                 edited_data = uploaded_df[edit_cols].copy()
         except Exception as e:
