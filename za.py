@@ -2246,7 +2246,6 @@ def main():
     st.subheader("单个MSKU分析")
     if current_data is not None and not current_data.empty:
         msku_list = sorted(current_data["MSKU"].unique())
-
         # 添加MSKU查询输入框
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -2255,7 +2254,6 @@ def main():
                 placeholder="粘贴MSKU代码快速查询...",
                 key="msku_query"
             )
-
         # 根据查询内容过滤下拉选项
         if msku_query:
             filtered_mskus = [msku for msku in msku_list if msku_query.strip().lower() in msku.lower()]
@@ -2264,42 +2262,52 @@ def main():
                 filtered_mskus = msku_list  # 未找到时显示全部
         else:
             filtered_mskus = msku_list
-
         # 下拉选择框（会根据查询内容动态过滤）
         with col2:
             selected_msku = st.selectbox("或从列表选择", options=filtered_mskus, key="msku_select")
-
         if selected_msku:
             product_data = current_data[current_data["MSKU"] == selected_msku]
             product_info = product_data.iloc[0].to_dict()
-
             # 产品信息表格
             st.subheader("产品基本信息")
+            # 核心修改：在display_cols中新增8个列（4个系数+4个调整后日均）
             display_cols = [
-                "MSKU", "品名", "店铺", "日均", "7天日均", "14天日均", "28天日均",
+                "MSKU", "品名", "店铺",
+                # 基础日均列（保留原逻辑）
+                "日均", "7天日均", "14天日均", "28天日均",
+                # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
+                "10月15-31日系数", "10月15-31日调整后日均",
+                "11月1-15日系数", "11月1-15日调整后日均",
+                "11月16-30日系数", "11月16-30日调整后日均",
+                "12月1-31日系数", "12月1-31日调整后日均",
+                # 原有其他列（保持不变）
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
                 "状态判断", "清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
             ]
-
-            # 创建信息表格
+            # 创建信息表格（保持原逻辑，自动适配新增列）
             info_df = product_data[display_cols].copy()
-
-            # 格式化日期
+            # 格式化日期（保持原逻辑）
             date_cols = ["预计FBA+AWD+在途用完时间", "预计总库存用完"]
             for col in date_cols:
                 if col in info_df.columns:
                     info_df[col] = pd.to_datetime(info_df[col]).dt.strftime("%Y-%m-%d")
-
-            # 添加状态颜色
+            # 添加状态颜色（保持原逻辑）
             if "状态判断" in info_df.columns:
                 info_df["状态判断"] = info_df["状态判断"].apply(
                     lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
                 )
-
+            # 新增：（可选）格式化系数列显示（保留2位小数，增强可读性）
+            coefficient_cols = [
+                "10月15-31日系数", "11月1-15日系数",
+                "11月16-30日系数", "12月1-31日系数"
+            ]
+            for col in coefficient_cols:
+                if col in info_df.columns:
+                    info_df[col] = info_df[col].round(2)  # 系数固定为2位小数
+            # 显示表格（保持原逻辑）
             st.markdown(info_df.to_html(escape=False, index=False), unsafe_allow_html=True)
-
-            # 库存预测图表（从记录时间到2025年12月31日，带目标日期线）
+            # 库存预测图表（保持原逻辑，图表已基于分阶段日均计算）
             forecast_fig = render_stock_forecast_chart(product_data, selected_msku)
             st.plotly_chart(forecast_fig, use_container_width=True)
     else:
