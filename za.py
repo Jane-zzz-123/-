@@ -1858,12 +1858,20 @@ def main():
             suffixes=("_original", "_edited")
         )
 
-        # 用编辑后的数据覆盖原始数据
+        # 用编辑后的数据覆盖原始数据（修复KeyError）
         update_cols = ["日均", "7天日均", "14天日均", "28天日均",
                        "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
         for col in update_cols:
-            # 优先用编辑值，没有则保留原始值
-            merged_data[col] = merged_data[f"{col}_edited"].fillna(merged_data[f"{col}_original"])
+            # 关键：先检查编辑列是否存在，避免KeyError
+            edited_col = f"{col}_edited"
+            original_col = f"{col}_original"
+
+            if edited_col in merged_data.columns:
+                # 存在编辑列：用编辑值填充空值，再覆盖原始列
+                merged_data[col] = merged_data[edited_col].fillna(merged_data[original_col])
+            else:
+                # 不存在编辑列：直接保留原始值（无需修改）
+                merged_data[col] = merged_data[original_col]  # 或直接跳过，因为col本身就是原始列
 
         # 删除临时列
         merged_data = merged_data.drop(
@@ -1927,14 +1935,35 @@ def main():
             "10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"
         ]
 
-        # 准备编辑数据（从合并后的df提取，而非原始数据）
+        # 准备编辑数据（从合并后的df提取，确保列完整）
         if st.session_state.edited_df is not None:
+            # 关键：检查编辑数据是否包含所有必要列，缺失则从原始df补充
+            missing_cols = [col for col in edit_cols if col not in st.session_state.edited_df.columns]
+            if missing_cols:
+                st.warning(f"检测到编辑数据缺少必要列：{missing_cols}，已自动补充默认值")
+                # 从原始df中提取缺失的列（按唯一键匹配）
+                supplement_data = df[["店铺", "记录时间", "MSKU"] + missing_cols].drop_duplicates(
+                    subset=["MSKU", "记录时间", "店铺"]
+                )
+                # 合并补充数据到编辑数据中
+                st.session_state.edited_df = st.session_state.edited_df.merge(
+                    supplement_data,
+                    on=["店铺", "记录时间", "MSKU"],
+                    how="left"  # 保留编辑数据的所有行，缺失列用原始数据填充
+                )
+            # 确保只保留需要的列
             edited_data = st.session_state.edited_df[edit_cols].copy()
         else:
-            edited_data = df[edit_cols].drop_duplicates(subset=["MSKU", "记录时间"]).copy()
+            # 从原始数据提取编辑列（原逻辑保留，增加容错）
+            edited_data = df[edit_cols].drop_duplicates(subset=["MSKU", "记录时间", "店铺"]).copy()
             coeff_cols = ["10月15-31日系数", "11月1-15日系数", "11月16-30日系数", "12月1-31日系数"]
             for col in coeff_cols:
-                edited_data[col] = edited_data[col].astype(float)
+                # 容错处理：如果列存在但转换失败，用0填充
+                try:
+                    edited_data[col] = edited_data[col].astype(float)
+                except (ValueError, TypeError):
+                    st.warning(f"列 {col} 包含非数值数据，已自动转换为0")
+                    edited_data[col] = pd.to_numeric(edited_data[col], errors="coerce").fillna(0)
 
         # 编辑表格（原逻辑不变）
         st.subheader("运营数据调整（日均+时间段系数）")
