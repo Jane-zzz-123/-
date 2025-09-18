@@ -1564,7 +1564,7 @@ def render_product_detail_chart(df, msku):
 
 # 在render_stock_forecast_chart函数中修改目标日期线
 def render_stock_forecast_chart(data, msku):
-    """渲染单个MSKU的库存预测图表（从记录时间到2025年12月31日）"""
+    """渲染单个MSKU的库存预测图表（从记录时间到2025年12月31日，含分阶段系数）"""
     if data is None or data.empty:
         fig = go.Figure()
         fig.add_annotation(text="无数据可展示", x=0.5, y=0.5, showarrow=False, font=dict(size=16))
@@ -1574,28 +1574,54 @@ def render_stock_forecast_chart(data, msku):
     row = data.iloc[0]
     start_date = row["记录时间"]  # 记录时间
     end_date = END_DATE  # 2025年12月31日
-
-    # 计算预测天数
-    forecast_days = (end_date - start_date).days + 1
-    dates = [start_date + timedelta(days=i) for i in range(forecast_days)]
-
-    # 使用日均计算剩余库存
-    daily_sales = row["日均"] if row["日均"] > 0 else 0.1
+    base_avg = row["日均"] if row["日均"] > 0 else 0.1  # 基础日均
     total_stock = row["全部总库存"]
-    remaining_stock = [max(total_stock - daily_sales * i, 0) for i in range(forecast_days)]
+    remaining_stock = total_stock
 
-    # 生成折线图
+    # 1. 定义时间段系数（需与load_and_preprocess_data_from_df保持一致）
+    TIME_PERIODS = [
+        {"start": datetime(2025, 10, 15), "end": datetime(2025, 10, 31), "coefficient": 0.95},
+        {"start": datetime(2025, 11, 1), "end": datetime(2025, 11, 15), "coefficient": 0.91},
+        {"start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30), "coefficient": 0.72},
+        {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.43}
+    ]
+
+    # 2. 分阶段计算剩余库存（核心修改）
+    forecast_dates = []
+    forecast_stock = []
+    current_date = start_date
+
+    while current_date <= end_date and remaining_stock > 0:
+        # 确定当前日期对应的系数
+        current_coeff = 1.0  # 默认系数1.0
+        for period in TIME_PERIODS:
+            if period["start"] <= current_date <= period["end"]:
+                current_coeff = period["coefficient"]
+                break
+
+        # 计算当天的销量（基础日均×当前系数）
+        daily_sales = base_avg * current_coeff
+        # 扣减库存（确保不小于0）
+        remaining_stock = max(remaining_stock - daily_sales, 0)
+
+        # 记录日期和库存
+        forecast_dates.append(current_date)
+        forecast_stock.append(remaining_stock)
+
+        # 日期+1天
+        current_date += timedelta(days=1)
+
+    # 3. 生成折线图（使用分阶段计算的结果）
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=dates,
-        y=remaining_stock,
+        x=forecast_dates,
+        y=forecast_stock,
         mode="lines+markers",
         line=dict(color="#4169E1", width=2),
-        name="预计库存"
+        name="预计库存（分阶段系数）"
     ))
 
-    # 添加目标日期线（将datetime转换为timestamp）
-    # 计算目标日期在x轴上的位置
+    # 4. 添加目标日期线（保持原逻辑）
     fig.add_vline(
         x=TARGET_DATE.timestamp() * 1000,  # 转换为毫秒级时间戳
         line_dash="dash",
@@ -1605,8 +1631,22 @@ def render_stock_forecast_chart(data, msku):
         annotation_font=dict(color="#DC143C")
     )
 
+    # 5. 添加时间段系数标注（可选，增强可读性）
+    for period in TIME_PERIODS:
+        # 在时间段起始位置添加系数标注
+        fig.add_annotation(
+            x=period["start"],
+            y=max(forecast_stock) * 0.9,  # 标注位置在库存峰值的90%处
+            text=f"{period['start'].strftime('%m-%d')}起系数: {period['coefficient']}",
+            showarrow=True,
+            arrowhead=1,
+            arrowcolor=STATUS_COLORS["低滞销风险"],
+            font=dict(size=10, color=STATUS_COLORS["低滞销风险"])
+        )
+
+    # 6. 图表布局（保持原逻辑）
     fig.update_layout(
-        title=f"{msku} 库存消耗预测",
+        title=f"{msku} 库存消耗预测（含分阶段销量系数）",
         xaxis_title="日期",
         yaxis_title="剩余库存",
         plot_bgcolor="#f8f9fa",
@@ -1614,25 +1654,23 @@ def render_stock_forecast_chart(data, msku):
         margin=dict(t=50, b=20, l=20, r=20)
     )
 
-    # 关键改进：强制横坐标每隔10天显示一次
+    # 7. 横坐标设置（保持原逻辑）
     fig.update_xaxes(
         rangeslider_visible=True,
         rangeselector=dict(
             buttons=list([
-                dict(count=30, label="30天", step="day", stepmode="backward"),  # 调整为30天更贴合10天间隔
+                dict(count=30, label="30天", step="day", stepmode="backward"),
                 dict(count=1, label="1月", step="month", stepmode="backward"),
                 dict(step="all", label="全部")
             ])
         ),
-        # 强制设置时间轴类型和间隔
         type="date",
-        tickformat="%Y年%m月%d日",  # 中文日期格式
-        dtick=864000000,  # 10天的毫秒数（86400000毫秒/天 × 10天）
-        ticklabelmode="period"  # 确保标签显示在间隔点上
+        tickformat="%Y年%m月%d日",
+        dtick=864000000,  # 10天的毫秒数
+        ticklabelmode="period"
     )
 
     return fig
-
 
 # ------------------------------
 # 3. 主函数（页面布局）
