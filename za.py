@@ -389,8 +389,34 @@ def load_and_preprocess_data_from_df(df):
             (df["全部总库存"] / days_available).round(2)
         )
 
+        # 15. 预计清完FBA+AWD+在途需要的日均（新增）
+        def calculate_fba_awd_target_avg(row):
+            """计算清空FBA+AWD+在途库存所需的目标日均"""
+            record_date = row["记录时间"]
+            fba_awd_stock = row["FBA+AWD+在途库存"]
+            target_date = TARGET_DATE  # 目标日期（2025-12-1）
+
+            # 计算目标日期前的总天数（避免除以0）
+            days_available = (target_date - record_date).days
+            days_available = max(days_available, 1)
+
+            # 计算FBA+AWD+在途库存的分阶段可售总量
+            fba_sales_possible = calculate_target_sales(row)  # 复用已有的分阶段销售计算函数
+
+            # 判断FBA+AWD+在途库存状态
+            if fba_awd_stock <= fba_sales_possible:
+                # 库存可在目标日期前自然售罄，使用分阶段加权日均
+                return round(fba_sales_possible / days_available, 2)
+            else:
+                # 库存无法自然售罄，计算需要加速的日均
+                return round(fba_awd_stock / days_available, 2)
+
+        # 应用计算函数
+        df["预计清完FBA+AWD+在途需要的日均"] = df.apply(calculate_fba_awd_target_avg, axis=1)
+
         # （可选）删除临时列，减少数据冗余
         df = df.drop(columns=["目标日期前分阶段可售总量"], errors="ignore")
+
 
         # 排序（保持原逻辑）
         df = df.sort_values("记录时间", ascending=False).reset_index(drop=True)
@@ -399,32 +425,7 @@ def load_and_preprocess_data_from_df(df):
         st.error(f"数据加载失败：{str(e)}")
         return None
 
-    # 在load_and_preprocess_data_from_df函数中，找到清库存目标日均计算部分，添加以下代码
 
-    # 15. 预计清完FBA+AWD+在途需要的日均（新增）
-    def calculate_fba_awd_target_avg(row):
-        """计算清空FBA+AWD+在途库存所需的目标日均"""
-        record_date = row["记录时间"]
-        fba_awd_stock = row["FBA+AWD+在途库存"]
-        target_date = TARGET_DATE  # 目标日期（2025-12-1）
-
-        # 计算目标日期前的总天数（避免除以0）
-        days_available = (target_date - record_date).days
-        days_available = max(days_available, 1)
-
-        # 计算FBA+AWD+在途库存的分阶段可售总量
-        fba_sales_possible = calculate_target_sales(row)  # 复用已有的分阶段销售计算函数
-
-        # 判断FBA+AWD+在途库存状态
-        if fba_awd_stock <= fba_sales_possible:
-            # 库存可在目标日期前自然售罄，使用分阶段加权日均
-            return round(fba_sales_possible / days_available, 2)
-        else:
-            # 库存无法自然售罄，计算需要加速的日均
-            return round(fba_awd_stock / days_available, 2)
-
-    # 应用计算函数
-    df["预计清完FBA+AWD+在途需要的日均"] = df.apply(calculate_fba_awd_target_avg, axis=1)
 
 
 
