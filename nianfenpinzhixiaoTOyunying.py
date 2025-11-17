@@ -119,9 +119,7 @@ def load_and_preprocess_data_from_df(df):
     try:
         # 1. 时间段系数配置（您已定义，保持不变）
         TIME_PERIODS = [
-            {"name": "november_late", "start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30),
-             "coefficient": 0.78},
-            {"name": "december", "start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.47}
+            {"name": "december", "start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.60}
         ]
         # 2. 基础列检查与数据类型转换（您已实现，保持不变）
         required_base_cols = [
@@ -144,12 +142,10 @@ def load_and_preprocess_data_from_df(df):
         # 新增：生成4个时间段的系数列和调整后日均列
         # ------------------------------
         # 系数列（固定值，用于表格展示）
-        df["11月16-30日系数"] = 0.78
-        df["12月1-31日系数"] = 0.47
+        df["12月1-31日系数"] = 0.60
 
         # 调整后日均列（基础日均 × 对应系数，保留2位小数）
-        df["11月16-30日调整后日均"] = (df["日均"] * 0.78).round(2)
-        df["12月1-31日调整后日均"] = (df["日均"] * 0.47).round(2)
+        df["12月1-31日调整后日均"] = (df["日均"] * 0.60).round(2)
 
         # ------------------------------
         # 核心计算逻辑（修改：依赖分阶段调整后的日均）
@@ -179,7 +175,7 @@ def load_and_preprocess_data_from_df(df):
                 return record_date
 
             # 阶段1：记录日期 → 2025-10-14（系数=1.0）
-            phase1_end = datetime(2025, 11, 15)
+            phase1_end = datetime(2025, 11, 30)
             if current_date <= phase1_end:
                 days_in_phase = (phase1_end - current_date).days + 1  # 包含首尾日期
                 sales_possible = base_avg * days_in_phase  # 此阶段无系数调整
@@ -246,7 +242,7 @@ def load_and_preprocess_data_from_df(df):
                 return 0
 
             # 阶段1：记录日期 → 2025-10-14（系数=1.0）
-            phase1_end = datetime(2025, 11, 15)
+            phase1_end = datetime(2025, 11, 30)
             if current_date <= phase1_end:
                 actual_end = min(phase1_end, target_date)  # 不超过目标日期
                 days_in_phase = (actual_end - current_date).days + 1
@@ -345,7 +341,7 @@ def load_and_preprocess_data_from_df(df):
                 return 0
 
             # 阶段1：记录日期 → 2025-10-14（系数=1.0）
-            phase1_end = datetime(2025, 11, 15)
+            phase1_end = datetime(2025, 11, 30)
             if current_date <= phase1_end:
                 actual_end = min(phase1_end, target_date)  # 不超过目标日期
                 days_in_phase = (actual_end - current_date).days + 1  # 包含首尾
@@ -763,7 +759,6 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         # 基础日均列（保留原逻辑）
         "日均", "7天日均", "14天日均", "28天日均",
         # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
-        "11月16-30日系数", "11月16-30日调整后日均",
         "12月1-31日系数", "12月1-31日调整后日均",
         # 原有其他列（保持不变）
         "FBA+AWD+在途库存", "本地可用", "全部总库存",
@@ -806,7 +801,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
              "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
              "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
              # 新增：四个时间段的调整后日均（系数固定，无需环比）
-             "11月16-30日调整后日均", "12月1-31日调整后日均"]
+              "12月1-31日调整后日均"]
         ].to_dict("index")
 
         def add_compare(row, col):
@@ -822,7 +817,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
             # 确定颜色：日均上升好，滞销数量下降好
             if col in ["日均", "7天日均", "14天日均", "28天日均",
                        # 新增：调整后日均也属于"日均类"，上升为好
-                       "11月16-30日调整后日均", "12月1-31日调整后日均"]:
+                       "12月1-31日调整后日均"]:
                 color = "#2E8B57" if diff >= 0 else "#DC143C"
             else:  # 库存和滞销数量相关列（保持原逻辑）
                 color = "#2E8B57" if diff <= 0 else "#DC143C"
@@ -835,7 +830,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         numeric_cols = [
             "日均", "7天日均", "14天日均", "28天日均",
             # 新增：四个时间段的调整后日均（系数固定，无需环比）
-            "11月16-30日调整后日均", "12月1-31日调整后日均",
+            "12月1-31日调整后日均",
             # 原有其他列（保持不变）
             "FBA+AWD+在途库存","本地可用",
             "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
@@ -1209,7 +1204,6 @@ def render_status_change_table(data, page=1, page_size=30):
         # 基础日均列（保留原逻辑）
         "日均", "7天日均", "14天日均", "28天日均",
         # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
-        "11月16-30日系数", "11月16-30日调整后日均",
         "12月1-31日系数", "12月1-31日调整后日均",
         # 原有其他列（保持不变）
         "FBA+AWD+在途库存","本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
@@ -1436,8 +1430,7 @@ def render_stock_forecast_chart(data, msku):
 
     # 1. 定义时间段系数（需与load_and_preprocess_data_from_df保持一致）
     TIME_PERIODS = [
-        {"start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30), "coefficient": 0.78},
-        {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.47}
+        {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.60}
     ]
 
     # 2. 分阶段计算剩余库存（核心修改）
@@ -1545,8 +1538,7 @@ def render_product_detail_chart(df, msku):
 
     # 1. 定义时间段系数（需与其他函数保持一致）
     TIME_PERIODS = [
-        {"start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30), "coefficient": 0.78},
-        {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.47}
+        {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.60}
     ]
 
     # 2. 创建图表
@@ -1652,8 +1644,7 @@ def render_stock_forecast_chart(data, msku):
 
     # 1. 定义时间段系数（需与load_and_preprocess_data_from_df保持一致）
     TIME_PERIODS = [
-        {"start": datetime(2025, 11, 16), "end": datetime(2025, 11, 30), "coefficient": 0.78},
-        {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.47}
+        {"start": datetime(2025, 12, 1), "end": datetime(2025, 12, 31), "coefficient": 0.60}
     ]
 
     # 2. 分阶段计算剩余库存（核心修改）
@@ -2370,7 +2361,6 @@ def main():
                 # 基础日均列（保留原逻辑）
                 "日均", "7天日均", "14天日均", "28天日均",
                 # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
-                "11月16-30日系数", "11月16-30日调整后日均",
                 "12月1-31日系数", "12月1-31日调整后日均",
                 # 原有其他列（保持不变）
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
@@ -2447,7 +2437,6 @@ def main():
                 # 基础日均列（保留原逻辑）
                 "日均", "7天日均", "14天日均", "28天日均",
                 # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
-                "11月16-30日系数", "11月16-30日调整后日均",
                 "12月1-31日系数", "12月1-31日调整后日均",
                 # 原有其他列（保持不变）
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
@@ -2468,7 +2457,7 @@ def main():
                 )
             # 新增：（可选）格式化系数列显示（保留2位小数，增强可读性）
             coefficient_cols = [
-                "11月16-30日系数", "12月1-31日系数"
+                "12月1-31日系数"
             ]
             for col in coefficient_cols:
                 if col in info_df.columns:
@@ -2523,7 +2512,6 @@ def main():
             # 基础日均列（保留原逻辑）
             "日均", "7天日均", "14天日均", "28天日均",
             # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
-            "11月16-30日系数", "11月16-30日调整后日均",
             "12月1-31日系数", "12月1-31日调整后日均",
             # 原有其他列（保持不变）
             "FBA+AWD+在途库存", "本地可用",
@@ -2553,7 +2541,6 @@ def main():
                 # 基础日均列
                 "日均", "7天日均", "14天日均", "28天日均",
                 # 新增：四个时间段的系数+调整后日均
-                "11月16-30日系数", "11月16-30日调整后日均",
                 "12月1-31日系数", "12月1-31日调整后日均",
                 # 原有其他列
                 "FBA+AWD+在途库存", "本地可用",
@@ -2648,7 +2635,6 @@ def main():
                 # 基础日均列（保留原逻辑）
                 "日均", "7天日均", "14天日均", "28天日均",
                 # 新增：四个时间段的系数+调整后日均（按时间顺序插入）
-                "11月16-30日系数", "11月16-30日调整后日均",
                 "12月1-31日系数", "12月1-31日调整后日均",
                 # 原有其他列（保持不变）
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
