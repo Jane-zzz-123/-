@@ -582,6 +582,7 @@ def render_store_status_table(current_data, prev_data):
     html += "</table>"
     st.markdown(html, unsafe_allow_html=True)
 
+
 def render_product_detail_table(data, prev_data=None, page=1, page_size=30, table_id=""):
     """产品风险详情表"""
     if data is None or data.empty:
@@ -607,7 +608,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         "12月1-31日系数", "12月1-31日调整后日均",
         "FBA+AWD+在途库存", "本地可用", "全部总库存",
         "预计FBA+AWD+在途用完时间", "预计总库存用完",
-        "状态判断", "预计清完FBA+AWD+在途需要的日均","清库存的目标日均",
+        "状态判断", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
         "环比上周库存滞销情况变化"
@@ -631,25 +632,31 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         paginated_data["状态判断"] = paginated_data["状态判断"].apply(
             lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
         )
-    # 添加环比
+    # 添加环比（修复核心：兼容列缺失）
     if prev_data is not None and not prev_data.empty:
-        prev_map = prev_data.set_index("MSKU")[
-            ["日均", "7天日均", "14天日均", "28天日均",
-             "FBA+AWD+在途库存","本地可用",
-             "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-             "10月16-11月15日调整后日均","11月16-30日调整后日均",
-              "12月1-31日调整后日均"]
-        ].to_dict("index")
+        # 定义需要比较的列列表
+        compare_cols = [
+            "日均", "7天日均", "14天日均", "28天日均",
+            "10月16-11月15日调整后日均", "11月16-30日调整后日均",
+            "12月1-31日调整后日均", "FBA+AWD+在途库存", "本地可用",
+            "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
+            "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数"
+        ]
+        # 只保留prev_data中实际存在的列，避免KeyError
+        valid_compare_cols = [col for col in compare_cols if col in prev_data.columns]
+        # 生成prev_map（仅包含有效列）
+        prev_map = prev_data.set_index("MSKU")[valid_compare_cols].to_dict("index")
+
         def add_compare(row, col):
             msku = row["MSKU"]
             curr_val = row[col]
+            # 若列不在prev_map中，或MSKU无数据，返回无数据提示
             prev_val = prev_map.get(msku, {}).get(col, 0)
             if prev_val == 0:
                 return f"{curr_val:.2f}<br><span style='color:#666'>无数据</span>"
             diff = curr_val - prev_val
             pct = (diff / prev_val) * 100
-            if col in ["日均", "7天日均", "14天日均", "28天日均","10月16-11月15日调整后日均","11月16-30日调整后日均",
+            if col in ["日均", "7天日均", "14天日均", "28天日均", "10月16-11月15日调整后日均", "11月16-30日调整后日均",
                        "12月1-31日调整后日均"]:
                 color = "#2E8B57" if diff >= 0 else "#DC143C"
             else:
@@ -657,15 +664,9 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
             diff_symbol = "+" if diff > 0 else ""
             pct_symbol = "+" if pct > 0 else ""
             return f"{curr_val:.2f}<br><span style='color:{color}'>{diff_symbol}{diff:.2f} ({pct_symbol}{pct:.1f}%)</span>"
-        # 需要比较的数值列
-        numeric_cols = [
-            "日均", "7天日均", "14天日均", "28天日均",
-            "10月16-11月15日调整后日均","11月16-30日调整后日均","12月1-31日调整后日均",
-            "FBA+AWD+在途库存","本地可用",
-            "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-            "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数"
-        ]
-        for col in numeric_cols:
+
+        # 仅对paginated_data中存在、且在valid_compare_cols中的列做环比
+        for col in valid_compare_cols:
             if col in paginated_data.columns:
                 paginated_data[col] = paginated_data.apply(lambda x: add_compare(x, col), axis=1)
     st.markdown(paginated_data.to_html(escape=False, index=False), unsafe_allow_html=True)
