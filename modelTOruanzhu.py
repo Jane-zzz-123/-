@@ -583,7 +583,7 @@ def render_store_status_table(current_data, prev_data):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_product_detail_table(data, prev_data=None, page=1, page_size=30, table_id=""):
-    """渲染产品风险详情表（带环比和分页功能）"""
+    """产品风险详情表"""
     if data is None or data.empty:
         st.markdown("<p style='color:#666'>无匹配产品数据</p>", unsafe_allow_html=True)
         return 0
@@ -597,14 +597,10 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
     # 添加排序辅助列
     data = data.copy()
     data["_sort_key"] = data["状态判断"].map(status_order)
-    # 先按风险状态优先级升序（高风险在前），再按总滞销库存降序
     data = data.sort_values(by=["_sort_key", "总滞销库存"], ascending=[True, False])
-    # 删除临时排序列
     data = data.drop(columns=["_sort_key"])
-    # 定义要显示的列（新增：4个时间段的系数+调整后日均）
     display_cols = [
         "MSKU", "品名", "店铺",
-        # 基础日均列（保留原逻辑）
         "日均", "7天日均", "14天日均", "28天日均",
         "10月16-11月15日系数", "10月16-11月15日调整后日均",
         "11月16-30日系数", "11月16-30日调整后日均",
@@ -968,8 +964,8 @@ def render_status_change_table(data, page=1, page_size=30):
     display_cols = [
         "MSKU", "品名", "店铺", "记录时间",
         "日均", "7天日均", "14天日均", "28天日均",
-        "10月16-11月15日系数", "10月16-11月15日调整后日均"
-        "11月16-11月30日系数", "11月16-11月30日调整后日均"
+        "10月16-11月15日系数", "10月16-11月15日调整后日均",
+        "11月16-30日系数", "11月16-30日调整后日均",
         "12月1-31日系数", "12月1-31日调整后日均",
         "FBA+AWD+在途库存","本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
         "状态判断", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
