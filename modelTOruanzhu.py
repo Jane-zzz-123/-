@@ -1950,7 +1950,8 @@ def main():
                 "状态判断",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
             ]
-            info_df = product_data[display_cols].copy()
+            valid_display_cols = [col for col in display_cols if col in product_data.columns]
+            info_df = product_data[valid_display_cols].copy()
             date_cols = ["预计FBA+AWD+在途用完时间", "预计总库存用完"]
             for col in date_cols:
                 if col in info_df.columns:
