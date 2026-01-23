@@ -2092,7 +2092,12 @@ def main():
                 "状态判断",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
             ]
-            table_data = product_history_data[display_cols].copy()
+            valid_display_cols = [col for col in display_cols if col in product_history_data.columns]
+            if not valid_display_cols:
+                st.error("⚠️ 没有可展示的有效列（所有指定列均不存在）")
+                table_data = pd.DataFrame()
+            else:
+                table_data = product_history_data[valid_display_cols].copy()
             date_cols = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
             for col in date_cols:
                 if col in table_data.columns:
