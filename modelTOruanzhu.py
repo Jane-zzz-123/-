@@ -1319,7 +1319,7 @@ def render_stock_forecast_chart(data, msku):
     total_stock = row["全部总库存"]
     remaining_stock = total_stock
     TIME_PERIODS = [
-        {"start": datetime(2026, 100, 16), "end": datetime(2026, 11, 15), "coefficient": 0.90},
+        {"start": datetime(2026, 10, 16), "end": datetime(2026, 11, 15), "coefficient": 0.90},
         {"start": datetime(2026, 11, 16), "end": datetime(2026, 11, 30), "coefficient": 0.70},
         {"start": datetime(2026, 12, 1), "end": datetime(2026, 12, 31), "coefficient": 0.50}
     ]
