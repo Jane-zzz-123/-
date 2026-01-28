@@ -1385,7 +1385,7 @@ def main():
         """)
         st.subheader("数据加载中...")
         try:
-            data_url = "https://github.com/Jane-zzz-123/-/blob/main/weekdaytoruanzhu.xlsx"
+            data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekdaytoruanzhu.xlsx"
             response = requests.get(data_url)
             response.raise_for_status()
             excel_data = BytesIO(response.content)
