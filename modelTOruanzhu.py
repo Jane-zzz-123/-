@@ -11,9 +11,9 @@ from math import ceil
 # 用户认证与权限管理
 def check_credentials():
     USER_PERMISSIONS = {
-        "user1": ("user111", ["店铺-1"]),  # 用户1能看的店铺
-        "user2": ("user222", ["店铺-2"]),  # 用户2能看的店铺
-        "user3": ("user333", ["店铺-3","店铺-4"]),  # 用户3能看的店铺
+        "user1": ("user111", ["店铺1"]),  # 用户1能看的店铺
+        "user2": ("user222", ["店铺2"]),  # 用户2能看的店铺
+        "user3": ("user333", ["店铺3","店铺4"]),  # 用户3能看的店铺
         "admin": ("admin111", None)  # 管理员能看所有店铺
     }
     all_users = list(USER_PERMISSIONS.keys())
@@ -124,10 +124,10 @@ def load_and_preprocess_data_from_df(df):
             #库存为0返回记录时间
             if remaining_stock <= 0:
                 return record_date
-            # 阶段1：2026-10-15（系数=1.0）前的日均都不打折
+            # 阶段1：2026-10-15 前的日均都不打折
             phase1_end = datetime(2026, 10, 15)
             if current_date <= phase1_end:
-                days_in_phase = (phase1_end - current_date).days + 1  # 包含首尾日期
+                days_in_phase = (phase1_end - current_date).days + 1
                 sales_possible = base_avg * days_in_phase  # 此阶段无系数调整
                 if remaining_stock <= sales_possible:
                     days_needed = remaining_stock / base_avg
@@ -135,7 +135,7 @@ def load_and_preprocess_data_from_df(df):
                 # 库存未耗尽，扣除此阶段销量，进入下一阶段
                 remaining_stock -= sales_possible
                 current_date = phase1_end + pd.Timedelta(days=1)
-            # 阶段2：处理3个特殊时间段（按时间顺序）
+            # 阶段2：处理特殊时间段
             for period in TIME_PERIODS:
                 if current_date > period["end"] or remaining_stock <= 0:
                     break  # 超出当前时间段或库存已耗尽，跳过
@@ -166,7 +166,7 @@ def load_and_preprocess_data_from_df(df):
         df["预计总库存用完"] = df.apply(
             lambda row: calculate_exhaust_date(row, "全部总库存"), axis=1
         )
-        # 6. 新增：分阶段计算滞销库存的核心函数（替换原固定日均计算）
+        # 6. 新增：分阶段计算滞销库存的核心函数
         def calculate_overstock(row, stock_col):
             record_date = row["记录时间"]
             stock = row[stock_col]
@@ -206,7 +206,7 @@ def load_and_preprocess_data_from_df(df):
                 sold_by_target += sales
                 remaining_stock -= sales
                 current_date = period_end + pd.Timedelta(days=1)
-            # 滞销库存 = 总库存 - 目标日期前可售出库存（取非负）
+            # 滞销库存 = 总库存 - 目标日期前可售出库存
             return max(0, stock - sold_by_target)
         # 7. 预计用完时间比目标时间多出来的天数（基于分阶段计算的耗尽日期）
         days_diff = (df["预计总库存用完"] - TARGET_DATE).dt.days
@@ -284,7 +284,6 @@ def load_and_preprocess_data_from_df(df):
                 total_sales += sales
                 current_date = period_end + pd.Timedelta(days=1)
             return total_sales
-
         # 14. 清库存的目标日均
         days_available = (TARGET_DATE - df["记录时间"]).dt.days
         days_available = np.maximum(days_available, 1)  # 避免除以0
@@ -336,11 +335,9 @@ def get_previous_week_data(df, current_date):
     """获取上一周数据（用于环比计算）"""
     current_date = pd.to_datetime(current_date).normalize()
     all_dates = sorted(df["记录时间"].unique())
-
     if current_date not in all_dates:
         return None
     current_idx = all_dates.index(current_date)
-
     if current_idx > 0:
         prev_date = all_dates[current_idx - 1]
         return get_week_data(df, prev_date)
@@ -380,7 +377,6 @@ def compare_with_previous(current_metrics, prev_metrics):
         }
     return comparison
 
-# 2. 可视化组件函数
 def render_metric_card(title, current, diff=None, pct=None, color="#000000"):
     """渲染带环比的指标卡片"""
     if diff is None:
@@ -402,27 +398,23 @@ def render_metric_card(title, current, diff=None, pct=None, color="#000000"):
             </div>
         </div>
         """, unsafe_allow_html=True)
-#添加一个通用的多级索引表格渲染函数
+
 def render_multi_index_table(data, index_columns, value_columns, page=1, page_size=30, table_id=""):
     if data.empty:
         st.info("没有数据可显示")
         return 0
     total_rows = len(data)
     total_pages = max(1, (total_rows + page_size - 1) // page_size)
-    # 创建多级索引
     multi_index_data = data.set_index(index_columns)
-    # 分页处理
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
     paginated_data = multi_index_data.iloc[start_idx:end_idx]
-    # 转换为HTML显示，保留多级索引结构
     html = paginated_data.to_html(
         classes=["dataframe", "table", "table-striped", "table-hover"],
         escape=False,
         na_rep="",
         border=0
     )
-    # 添加自定义CSS美化多级索引表格
     st.markdown("""
     <style>
     .dataframe th {
@@ -444,7 +436,6 @@ def render_multi_index_table(data, index_columns, value_columns, page=1, page_si
     </style>
     """, unsafe_allow_html=True)
     st.markdown(html, unsafe_allow_html=True)
-    # 分页控制
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
         if page > 1:
@@ -461,12 +452,11 @@ def render_multi_index_table(data, index_columns, value_columns, page=1, page_si
     return total_rows
 
 def render_status_distribution_chart(metrics, title):
-    """渲染状态分布柱状图"""
+    """状态分布柱状图"""
     status_data = pd.DataFrame({
         "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
         "MSKU数": [metrics[status] for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
     })
-
     fig = px.bar(
         status_data,
         x="状态",
@@ -476,8 +466,7 @@ def render_status_distribution_chart(metrics, title):
         title=title,
         text="MSKU数",
         height=400,
-        # 添加自定义数据，用于点击时识别筛选条件
-        custom_data = ["状态"]  # 传递“状态”字段作为筛选标识
+        custom_data = ["状态"]
     )
     fig.update_traces(
         textposition="outside",
@@ -494,17 +483,15 @@ def render_status_distribution_chart(metrics, title):
     return fig
 
 def render_days_distribution_chart(data, title):
-    """渲染库存可用天数分布图表"""
+    """库存可用天数分布图表"""
     if data is None or data.empty:
         fig = go.Figure()
         fig.add_annotation(text="无数据可展示", x=0.5, y=0.5, showarrow=False, font=dict(size=16))
         fig.update_layout(title=title, plot_bgcolor="#f8f9fa", height=400)
         return fig
-    # 使用预计总库存需要消耗天数作为横坐标
     valid_days = data["预计总库存需要消耗天数"].clip(lower=0)
     today = data["记录时间"].iloc[0]
     days_to_target = (TARGET_DATE - today).days
-    # 状态阈值
     thresholds = {
         "高滞销风险": days_to_target,
         "中滞销风险": days_to_target - 14,
@@ -518,9 +505,8 @@ def render_days_distribution_chart(data, title):
         color_discrete_sequence=["#87CEEB"],
         height=400
     )
-    # 添加阈值线（虚线）
     for status, threshold in thresholds.items():
-        if threshold >= 0:  # 只显示合理的阈值线
+        if threshold >= 0:
             fig.add_vline(
                 x=threshold,
                 line_dash="dash",
@@ -538,7 +524,7 @@ def render_days_distribution_chart(data, title):
     return fig
 
 def render_store_status_table(current_data, prev_data):
-    """渲染店铺状态分布表（带环比）"""
+    """店铺状态分布表"""
     if current_data is None or current_data.empty:
         st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
         return
@@ -564,7 +550,6 @@ def render_store_status_table(current_data, prev_data):
     for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
         html += f"<th style='border:1px solid #ddd; padding:8px; background-color:{STATUS_COLORS[status]}20;'>{status}</th>"
     html += "</tr>"
-
     for store in current_pivot.index:
         html += f"<tr><td style='border:1px solid #ddd; padding:8px; font-weight:bold;'>{store}</td>"
         for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
@@ -575,27 +560,23 @@ def render_store_status_table(current_data, prev_data):
                 color = "#2E8B57" if diff >= 0 else "#DC143C"
             else:
                 color = "#2E8B57" if diff <= 0 else "#DC143C"
-
             diff_symbol = "+" if diff > 0 else ""
             html += f"<td style='border:1px solid #ddd; padding:8px;'>{curr}<br><span style='color:{color}; font-size:12px;'>{diff_symbol}{diff}</span></td>"
         html += "</tr>"
     html += "</table>"
     st.markdown(html, unsafe_allow_html=True)
 
-
 def render_product_detail_table(data, prev_data=None, page=1, page_size=30, table_id=""):
     """产品风险详情表"""
     if data is None or data.empty:
         st.markdown("<p style='color:#666'>无匹配产品数据</p>", unsafe_allow_html=True)
         return 0
-    # 定义风险状态的排序优先级
     status_order = {
         "高滞销风险": 0,
         "中滞销风险": 1,
         "低滞销风险": 2,
         "健康": 3
     }
-    # 添加排序辅助列
     data = data.copy()
     data["_sort_key"] = data["状态判断"].map(status_order)
     data = data.sort_values(by=["_sort_key", "总滞销库存"], ascending=[True, False])
@@ -613,28 +594,22 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
         "环比上周库存滞销情况变化"
     ]
-    # 确保所有列都存在
     available_cols = [col for col in display_cols if col in data.columns]
     table_data = data[available_cols].copy()
     total_rows = len(table_data)
-    # 计算分页
     total_pages = ceil(total_rows / page_size)
     start_idx = (page - 1) * page_size
     end_idx = min(start_idx + page_size, total_rows)
     paginated_data = table_data.iloc[start_idx:end_idx].copy()
-    # 格式化日期
     date_cols = ["预计FBA+AWD+在途用完时间", "预计总库存用完"]
     for col in date_cols:
         if col in paginated_data.columns:
             paginated_data[col] = pd.to_datetime(paginated_data[col]).dt.strftime("%Y-%m-%d")
-    # 添加状态颜色
     if "状态判断" in paginated_data.columns:
         paginated_data["状态判断"] = paginated_data["状态判断"].apply(
             lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
         )
-    # 添加环比（修复核心：兼容列缺失）
     if prev_data is not None and not prev_data.empty:
-        # 定义需要比较的列列表
         compare_cols = [
             "日均", "7天日均", "14天日均", "28天日均",
             "10月16-11月15日调整后日均", "11月16-30日调整后日均",
@@ -642,15 +617,11 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
             "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数"
         ]
-        # 只保留prev_data中实际存在的列，避免KeyError
         valid_compare_cols = [col for col in compare_cols if col in prev_data.columns]
-        # 生成prev_map（仅包含有效列）
         prev_map = prev_data.set_index("MSKU")[valid_compare_cols].to_dict("index")
-
         def add_compare(row, col):
             msku = row["MSKU"]
             curr_val = row[col]
-            # 若列不在prev_map中，或MSKU无数据，返回无数据提示
             prev_val = prev_map.get(msku, {}).get(col, 0)
             if prev_val == 0:
                 return f"{curr_val:.2f}<br><span style='color:#666'>无数据</span>"
@@ -664,8 +635,6 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
             diff_symbol = "+" if diff > 0 else ""
             pct_symbol = "+" if pct > 0 else ""
             return f"{curr_val:.2f}<br><span style='color:{color}'>{diff_symbol}{diff:.2f} ({pct_symbol}{pct:.1f}%)</span>"
-
-        # 仅对paginated_data中存在、且在valid_compare_cols中的列做环比
         for col in valid_compare_cols:
             if col in paginated_data.columns:
                 paginated_data[col] = paginated_data.apply(lambda x: add_compare(x, col), axis=1)
@@ -673,7 +642,6 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
         if page > 1:
-            # 添加table_id参数使key唯一
             if st.button("上一页", key=f"prev_page_{table_id}"):
                 st.session_state.current_page = page - 1
                 st.rerun()
@@ -681,7 +649,6 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         st.write(f"第 {page} 页，共 {total_pages} 页，共 {total_rows} 条记录")
     with col3:
         if page < total_pages:
-            # 添加table_id参数使key唯一
             if st.button("下一页", key=f"next_page_{table_id}"):
                 st.session_state.current_page = page + 1
                 st.rerun()
@@ -1418,7 +1385,7 @@ def main():
         """)
         st.subheader("数据加载中...")
         try:
-            data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday.xlsx"
+            data_url = "https://github.com/Jane-zzz-123/-/blob/main/weekdaytoruanzhu.xlsx"
             response = requests.get(data_url)
             response.raise_for_status()
             excel_data = BytesIO(response.content)
