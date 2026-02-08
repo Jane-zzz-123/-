@@ -51,7 +51,7 @@ def check_credentials():
 if not check_credentials():
     st.stop()
 
-st.set_page_config(page_title="库存滞销风险分析仪表盘", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="库存滞销风险分析平台", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
     .dataframe th {font-size: 14px; text-align: center;}
@@ -1416,7 +1416,7 @@ def main():
             except:
                 pass
             st.stop()
-    st.title("库存滞销风险分析仪表盘")
+    st.title("库存滞销风险分析平台")
     if "filter_status" not in st.session_state:
         st.session_state.filter_status = None
     if "current_page" not in st.session_state:
