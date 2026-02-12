@@ -1733,69 +1733,113 @@ if month_options and selected_month:
                     )
                     st.plotly_chart(fig_freight, use_container_width=True)
 
-                # ===== 8. 货代月度表现总结（按每个货代单独分析）=====
+                # ===== 8. 货代月度表现总结（确保每个货代单独分析）=====
                 st.markdown("### 货代月度表现总结")
 
-                # 1. 先输出整体汇总
+                # ---------------------- 第一步：整体汇总 ----------------------
+                # 1. 计算整体核心指标
                 total_months = df_freight_filtered["中文月份"].nunique()
-                total_freights = df_freight_filtered["货代"].nunique()
+                total_freights = df_freight_filtered["货代"].nunique()  # 去重后的货代数量
                 total_orders = df_freight_filtered["总订单数"].sum()
-                avg_overall_rate = df_freight_filtered["准时率(%)"].mean()
+                avg_overall_rate = round(df_freight_filtered["准时率(%)"].mean(), 2)
 
-                st.markdown(
-                    f"**整体汇总**：所选时间范围共涵盖{total_months}个月份，涉及{total_freights}个货代，累计订单数{total_orders}单，整体平均准时率{avg_overall_rate:.2f}%。")
-
-                # 2. 按货代分组，逐个生成总结
-                st.markdown("---")
-                st.markdown("**各货代详细表现**：")
-
+                # 2. 按归类统计货代数量（去重，避免同一货代多月份重复计数）
+                # 先按货代分组取「主要归类」（出现次数最多的归类）
+                freight_main_category = []
                 for freight in df_freight_filtered["货代"].unique():
-                    # 筛选该货代的所有月份数据
-                    freight_data = df_freight_filtered[df_freight_filtered["货代"] == freight].sort_values("年月排序",
-                                                                                                           ascending=True)
+                    freight_data = df_freight_filtered[df_freight_filtered["货代"] == freight]
+                    # 取该货代出现次数最多的归类作为主要归类
+                    main_cate = freight_data["货代归类"].value_counts().idxmax()
+                    freight_main_category.append({"货代": freight, "主要归类": main_cate})
 
-                    # 核心指标
-                    involved_months = freight_data["中文月份"].tolist()
-                    total_orders_freight = freight_data["总订单数"].sum()
-                    avg_rate_freight = freight_data["准时率(%)"].mean()
-                    max_rate = freight_data["准时率(%)"].max()
-                    min_rate = freight_data["准时率(%)"].min()
-                    category = freight_data["货代归类"].value_counts().idxmax()  # 取出现次数最多的归类
+                # 转为DataFrame统计各类别货代数
+                df_freight_main_cate = pd.DataFrame(freight_main_category)
+                category_count = df_freight_main_cate["主要归类"].value_counts()
 
-                    # 归类描述
-                    if category == "优质":
-                        cate_desc = "整体表现为优质，准时率表现优秀"
-                        color = "#2e7d32"
-                    elif category == "合格":
-                        cate_desc = "整体表现为合格，准时率表现达标"
-                        color = "#ff9800"
+                # 3. 输出整体汇总
+                st.markdown(
+                    f"> **整体汇总**：所选时间范围共涵盖{total_months}个月份，涉及{total_freights}个货代，累计订单数{total_orders}单，整体平均准时率{avg_overall_rate}%。")
+
+                # 4. 输出各归类货代统计（按实际去重后的数量）
+                cate_summary = []
+                if "优质" in category_count:
+                    cate_summary.append(f"- **优质货代**：共{category_count['优质']}个，主要表现为准时率≥90%。")
+                if "合格" in category_count:
+                    cate_summary.append(f"- **合格货代**：共{category_count['合格']}个，主要表现为准时率≥80%且<90%。")
+                if "异常" in category_count:
+                    cate_summary.append(f"- **异常货代**：共{category_count['异常']}个，主要表现为准时率<80%。")
+                st.markdown("\n".join(cate_summary))
+
+                # 5. 核心货代（订单数最多）
+                # 按货代汇总累计订单数
+                freight_total_orders = df_freight_filtered.groupby("货代")["总订单数"].sum()
+                top_freight = freight_total_orders.idxmax()  # 订单数最多的货代
+                top_freight_orders = freight_total_orders[top_freight]
+                # 计算该货代的平均准时率和主要归类
+                top_freight_data = df_freight_filtered[df_freight_filtered["货代"] == top_freight]
+                top_freight_avg_rate = round(top_freight_data["准时率(%)"].mean(), 2)
+                top_freight_main_cate = \
+                df_freight_main_cate[df_freight_main_cate["货代"] == top_freight]["主要归类"].iloc[0]
+                st.markdown(
+                    f">- **核心货代{top_freight}**：累计订单数最多（{top_freight_orders}单），平均准时率{top_freight_avg_rate}%，归类为{top_freight_main_cate}。")
+
+                # 6. 异常提醒（有异常归类的货代）
+                abnormal_freights = df_freight_main_cate[df_freight_main_cate["主要归类"] == "异常"]["货代"].tolist()
+                if abnormal_freights:
+                    st.markdown(
+                        f">- **异常提醒**：{','.join(abnormal_freights)}等货代存在准时率低于80%的情况，需重点关注并推动时效优化。")
+
+                # ---------------------- 第二步：每个货代单独分析（核心：必显示） ----------------------
+                st.markdown("---")  # 分隔线
+                st.markdown("### 各货代详细表现（逐个分析）")
+
+                # 遍历每个货代，生成独立分析卡片
+                for freight in df_freight_filtered["货代"].unique():
+                    # 筛选该货代的所有数据
+                    freight_data = df_freight_filtered[df_freight_filtered["货代"] == freight].copy()
+                    # 按时间正序排序，方便展示月份范围
+                    freight_data = freight_data.sort_values("年月排序", ascending=True).reset_index(drop=True)
+
+                    # 计算该货代的核心指标
+                    freight_total = freight_data["总订单数"].sum()  # 累计订单数
+                    freight_avg_rate = round(freight_data["准时率(%)"].mean(), 2)  # 平均准时率
+                    freight_min_rate = round(freight_data["准时率(%)"].min(), 2)  # 最低准时率
+                    freight_max_rate = round(freight_data["准时率(%)"].max(), 2)  # 最高准时率
+                    freight_months = freight_data["中文月份"].tolist()  # 涉及月份
+                    freight_main_cate = df_freight_main_cate[df_freight_main_cate["货代"] == freight]["主要归类"].iloc[
+                        0]  # 主要归类
+
+                    # 月份范围格式化（如：2026年1月 至 2026年5月）
+                    if len(freight_months) == 1:
+                        month_text = freight_months[0]
                     else:
-                        cate_desc = "整体表现为异常，准时率表现不达标，需重点关注"
-                        color = "#c62828"
+                        month_text = f"{freight_months[0]} 至 {freight_months[-1]}"
 
-                    # 月份范围
-                    first_month = involved_months[0]
-                    last_month = involved_months[-1]
-                    if len(involved_months) == 1:
-                        month_desc = f"{first_month}"
+                    # 归类颜色和描述
+                    if freight_main_cate == "优质":
+                        cate_color = "#2e7d32"
+                        cate_desc = "准时率表现优秀，整体达标"
+                    elif freight_main_cate == "合格":
+                        cate_color = "#ff9800"
+                        cate_desc = "准时率基本达标，仍有优化空间"
                     else:
-                        month_desc = f"{first_month} 至 {last_month}"
+                        cate_color = "#c62828"
+                        cate_desc = "准时率未达标，需重点优化"
 
-                    # 生成单货代总结
+                    # 生成独立的货代分析卡片（强制显示）
                     st.markdown(f"""
-                    <div style='border-left: 4px solid {color}; padding-left: 12px; margin-bottom: 16px;'>
-                        <p style='margin: 0; font-weight: bold; font-size: 16px;'>{freight}</p>
-                        <p style='margin: 4px 0; font-size: 14px; color: {color};'>{cate_desc}</p>
-                        <p style='margin: 4px 0; font-size: 14px;'>
-                            涉及月份：{month_desc}，累计订单数：{total_orders_freight}单，平均准时率：{avg_rate_freight:.2f}%
-                        </p>
-                        <p style='margin: 4px 0; font-size: 14px;'>
-                            准时率区间：{min_rate:.2f}% - {max_rate:.2f}%，
-                            主要归类：<span style='color:{color}; font-weight:bold;'>{category}</span>
-                        </p>
+                    <div style='background-color: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 5px solid {cate_color};'>
+                        <h4 style='margin: 0 0 8px 0; color: #2d3748;'>{freight}</h4>
+                        <p style='margin: 4px 0; color: {cate_color}; font-weight: 500;'>{freight_main_cate} | {cate_desc}</p>
+                        <p style='margin: 4px 0; color: #4a5568;'>📅 涉及月份：{month_text}（共{len(freight_months)}个月）</p>
+                        <p style='margin: 4px 0; color: #4a5568;'>📦 累计订单数：{freight_total}单</p>
+                        <p style='margin: 4px 0; color: #4a5568;'>📊 平均准时率：{freight_avg_rate}%（区间：{freight_min_rate}% - {freight_max_rate}%）</p>
                     </div>
                     """, unsafe_allow_html=True)
-                    
+
+                # 调试用：打印数据（可选，确认货代列表）
+                # st.write("当前筛选的货代列表：", df_freight_filtered["货代"].unique())
+
                 # ===== 9. 数据下载 =====
                 # 明细数据下载
                 freight_detail_csv = df_freight_display.to_csv(index=False, encoding="utf-8-sig")
