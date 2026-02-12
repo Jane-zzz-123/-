@@ -1795,7 +1795,7 @@ if month_options and selected_month:
                         </p>
                     </div>
                     """, unsafe_allow_html=True)
-
+                    
                 # ===== 9. 数据下载 =====
                 # 明细数据下载
                 freight_detail_csv = df_freight_display.to_csv(index=False, encoding="utf-8-sig")
