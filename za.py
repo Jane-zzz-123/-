@@ -1721,7 +1721,7 @@ def main():
         """, unsafe_allow_html=False)
         st.subheader("数据加载中...")
         try:
-            data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday.xlsx"
+            data_url = "https://raw.githubusercontent.com/Jane-zzz-123/-/main/weekday11.xlsx"
             response = requests.get(data_url)
             response.raise_for_status()
             excel_data = BytesIO(response.content)
