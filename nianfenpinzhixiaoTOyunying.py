@@ -663,12 +663,6 @@ def render_metric_card(title, current, diff=None, pct=None, color="#000000"):
         """, unsafe_allow_html=True)
 
 def render_multi_index_table(data, index_columns, value_columns, page=1, page_size=30, table_id=""):
-    # ========== 新增：初始化分页状态（关键修复） ==========
-    if f"current_page_{table_id}" not in st.session_state:
-        st.session_state[f"current_page_{table_id}"] = 1
-    # 覆盖传入的page参数为session_state中的值
-    page = st.session_state[f"current_page_{table_id}"]
-
     if data.empty:
         st.info("没有数据可显示")
         return 0
@@ -859,191 +853,118 @@ def render_store_status_table(current_data, prev_data):
     st.markdown(html, unsafe_allow_html=True)
 
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from math import ceil
-
-
-# 注意：需确保 STATUS_COLORS 变量已在全局定义（原有代码库已包含）
-# 若未定义，可保留以下行（建议注释，优先复用全局变量）
-# STATUS_COLORS = {
-#     "健康": "#2E8B57",
-#     "低滞销风险": "#FFD700",
-#     "中滞销风险": "#FF8C00",
-#     "高滞销风险": "#DC143C",
-#     "非年份品（无目标日期风险）": "#808080"
-# }
-
-def render_product_detail_table(data, prev_data=None, page=1, page_size=30, table_id="product_detail"):
-    """
-    产品风险详情表（优化版：支持多表格独立分页、修复列名/样式bug）
-    :param data: 当期数据源
-    :param prev_data: 上期数据源（用于环比）
-    :param page: 初始页码（实际以session_state为准）
-    :param page_size: 每页行数
-    :param table_id: 表格唯一标识（区分不同表格的分页状态）
-    """
-    # ========== 核心优化：独立初始化分页状态（按table_id区分） ==========
-    if f"current_page_{table_id}" not in st.session_state:
-        st.session_state[f"current_page_{table_id}"] = 1
-    # 强制同步页码为session_state中的值（避免传入参数覆盖）
-    page = st.session_state[f"current_page_{table_id}"]
-
-    # 空数据处理
+def render_product_detail_table(data, prev_data=None, page=1, page_size=30, table_id=""):
+    """产品风险详情表"""
     if data is None or data.empty:
-        st.markdown("<p style='color:#666; text-align:center;'>无匹配产品数据</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#666'>无匹配产品数据</p>", unsafe_allow_html=True)
         return 0
 
-    # 数据预处理：按风险优先级排序
+    # ========== 调整1：状态排序兼容非年份品 ==========
     status_order = {
         "高滞销风险": 0,
         "中滞销风险": 1,
         "低滞销风险": 2,
         "健康": 3,
-        "非年份品（无目标日期风险）": 4  # 补充非年份品排序
+        "非年份品（无目标日期风险）": 4  # 新增：非年份品排最后
     }
-    data = data.copy()
-    # 修复：兼容非年份品的排序键
-    data["_sort_key"] = data["年份品清仓风险"].map(status_order).fillna(4)
-    data = data.sort_values(by=["_sort_key", "总滞销库存"], ascending=[True, False])
-    data = data.drop(columns=["_sort_key"], errors="ignore")
 
-    # 定义展示列（适配原有代码库的列名）
+    data = data.copy()
+    data["_sort_key"] = data["年份品清仓风险"].map(status_order).fillna(4)  # 兜底：未匹配的状态也排最后
+    data = data.sort_values(by=["_sort_key", "总滞销库存"], ascending=[True, False])
+    data = data.drop(columns=["_sort_key"])
+
+    # ========== 调整2：新增3个周转相关列到展示列表 ==========
     display_cols = [
-        "MSKU", "品名", "店铺",
+        "MSKU", "品名", "店铺", "是否年份品",  # 新增：是否年份品
         "日均", "7天日均", "14天日均", "28天日均",
         "FBA+AWD+在途库存", "本地可用", "全部总库存",
-        "预计FBA+AWD+在途用完时间", "预计总库存用完", "库存周转状态判断",
-        "总库存周转天数100天内达标日均", "周转天数超过100天的滞销数量",
-        "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
+        "预计FBA+AWD+在途用完时间", "预计总库存用完",
+        "库存周转状态判断","总库存周转天数100天内达标日均","周转天数超过100天的滞销数量","年份品清仓风险",   # 新增：库存周转状态判断
+        "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",   # 新增：100天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
         "环比上周库年份品滞销风险变化"
     ]
-    # 过滤数据中实际存在的列（避免KeyError）
+
     available_cols = [col for col in display_cols if col in data.columns]
     table_data = data[available_cols].copy()
     total_rows = len(table_data)
-    total_pages = max(1, ceil(total_rows / page_size))  # 兜底：至少1页
-
-    # 分页切片（防止索引越界）
+    total_pages = ceil(total_rows / page_size)
     start_idx = (page - 1) * page_size
     end_idx = min(start_idx + page_size, total_rows)
     paginated_data = table_data.iloc[start_idx:end_idx].copy()
 
-    # 日期列格式化（统一显示为YYYY-MM-DD）
+    # 日期列格式化
     date_cols = ["预计FBA+AWD+在途用完时间", "预计总库存用完"]
     for col in date_cols:
         if col in paginated_data.columns:
-            paginated_data[col] = pd.to_datetime(paginated_data[col], errors="coerce").dt.strftime("%Y-%m-%d")
-            paginated_data[col] = paginated_data[col].fillna("无数据")  # 空值兜底
+            paginated_data[col] = pd.to_datetime(paginated_data[col]).dt.strftime("%Y-%m-%d")
 
-    # ========== 修复：年份品风险状态添加颜色样式 ==========
+    # ========== 调整3：状态判断列样式兼容非年份品 ==========
     if "年份品清仓风险" in paginated_data.columns:
-        paginated_data["年份品清仓风险"] = paginated_data["年份品清仓风险"].apply(
-            lambda x: f"<span style='color:{STATUS_COLORS.get(x, '#808080')}; font-weight:bold;'>{x}</span>"
+        def format_status(x):
+            # 非年份品用灰色展示
+            if x == "非年份品（无目标日期风险）":
+                return f"<span style='color:#808080; font-weight:bold;'>{x}</span>"
+            # 年份品用原有颜色
+            return f"<span style='color:{STATUS_COLORS.get(x, '#000000')}; font-weight:bold;'>{x}</span>"
+
+        paginated_data["年份品清仓风险"] = paginated_data["年份品清仓风险"].apply(format_status)
+
+    # ========== 新增4：库存周转状态判断列加颜色样式 ==========
+    if "库存周转状态判断" in paginated_data.columns:
+        paginated_data["库存周转状态判断"] = paginated_data["库存周转状态判断"].apply(
+            lambda x: f"<span style='color:{TURNOVER_STATUS_COLORS.get(x, '#000000')}; font-weight:bold;'>{x}</span>"
         )
 
-    # ========== 环比数据处理（兼容空值/异常值） ==========
+    # 环比对比逻辑（原有逻辑保留，仅兼容非年份品）
     if prev_data is not None and not prev_data.empty:
         compare_cols = [
             "日均", "7天日均", "14天日均", "28天日均",
-            "FBA+AWD+在途库存", "本地可用", "全部总库存",
-            "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
+            "FBA+AWD+在途库存", "本地可用",
+            "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数"
         ]
-        valid_compare_cols = [col for col in compare_cols if col in prev_data.columns and col in paginated_data.columns]
-        if valid_compare_cols:
-            # 构建MSKU到上期数据的映射（避免重复遍历）
-            prev_map = prev_data.set_index("MSKU")[valid_compare_cols].to_dict("index")
+        valid_compare_cols = [col for col in compare_cols if col in prev_data.columns]
+        prev_map = prev_data.set_index("MSKU")[valid_compare_cols].to_dict("index")
 
-            def add_compare(row, col):
-                """生成带环比的单元格内容"""
-                msku = row["MSKU"]
-                curr_val = row[col]
-                prev_val = prev_map.get(msku, {}).get(col, 0)
+        def add_compare(row, col):
+            msku = row["MSKU"]
+            curr_val = row[col]
+            prev_val = prev_map.get(msku, {}).get(col, 0)
+            if prev_val == 0:
+                return f"{curr_val:.2f}<br><span style='color:#666'>无数据</span>"
+            diff = curr_val - prev_val
+            pct = (diff / prev_val) * 100
+            if col in ["日均", "7天日均", "14天日均", "28天日均"]:
+                color = "#2E8B57" if diff >= 0 else "#DC143C"
+            else:
+                color = "#2E8B57" if diff <= 0 else "#DC143C"
+            diff_symbol = "+" if diff > 0 else ""
+            pct_symbol = "+" if pct > 0 else ""
+            return f"{curr_val:.2f}<br><span style='color:{color}'>{diff_symbol}{diff:.2f} ({pct_symbol}{pct:.1f}%)</span>"
 
-                # 处理空值/0值（避免除0错误）
-                if pd.isna(curr_val):
-                    curr_val = 0
-                if pd.isna(prev_val) or prev_val == 0:
-                    return f"{curr_val:.2f}<br><span style='color:#666; font-size:12px;'>无上期数据</span>"
-
-                # 计算环比差值和变化率
-                diff = curr_val - prev_val
-                pct = (diff / prev_val) * 100
-
-                # 颜色规则：销量类（日均）越高越好，库存/风险类越低越好
-                if col in ["日均", "7天日均", "14天日均", "28天日均"]:
-                    color = "#2E8B57" if diff >= 0 else "#DC143C"  # 绿色=增长，红色=下降
-                else:
-                    color = "#2E8B57" if diff <= 0 else "#DC143C"  # 绿色=减少，红色=增加
-
-                # 符号处理（正数加+，负数不加）
-                diff_symbol = "+" if diff > 0 else ""
-                pct_symbol = "+" if pct > 0 else ""
-
-                return (
-                    f"{curr_val:.2f}<br>"
-                    f"<span style='color:{color}; font-size:12px;'>"
-                    f"{diff_symbol}{diff:.2f} ({pct_symbol}{pct:.1f}%)</span>"
-                )
-
-            # 为每个可比列生成环比内容
-            for col in valid_compare_cols:
+        for col in valid_compare_cols:
+            if col in paginated_data.columns:
                 paginated_data[col] = paginated_data.apply(lambda x: add_compare(x, col), axis=1)
 
-    # ========== 表格样式优化（复用原有代码库的样式） ==========
-    st.markdown("""
-    <style>
-    .product-detail-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-    .product-detail-table th {
-        background-color: #f8f9fa;
-        text-align: center;
-        padding: 8px 12px;
-        border-bottom: 2px solid #ddd;
-        font-weight: bold;
-    }
-    .product-detail-table td {
-        padding: 8px 12px;
-        border-bottom: 1px solid #ddd;
-        text-align: center;
-    }
-    .product-detail-table tr:hover {
-        background-color: #f1f1f1;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    # 渲染表格
+    st.markdown(paginated_data.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-    # 渲染表格（关闭索引，禁用转义以支持HTML样式）
-    st.markdown(
-        paginated_data.to_html(escape=False, index=False, classes=["product-detail-table"]),
-        unsafe_allow_html=True
-    )
-
-    # ========== 分页按钮（按table_id生成唯一key，避免冲突） ==========
+    # 分页逻辑（修复session_state键名，加table_id避免冲突）
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
         if page > 1:
-            if st.button("上一页", key=f"prev_page_{table_id}", use_container_width=True):
-                st.session_state[f"current_page_{table_id}"] = page - 1
-                st.rerun()  # 刷新页面以更新数据
+            if st.button("上一页", key=f"prev_page_{table_id}"):
+                st.session_state[f"current_page_{table_id}"] = page - 1  # 修复：加table_id
+                st.rerun()
     with col2:
-        st.markdown(
-            f"<p style='text-align:center; margin:0;'>第 {page} 页，共 {total_pages} 页，总计 {total_rows} 条记录</p>",
-            unsafe_allow_html=True
-        )
+        st.write(f"第 {page} 页，共 {total_pages} 页，共 {total_rows} 条记录")
     with col3:
         if page < total_pages:
-            if st.button("下一页", key=f"next_page_{table_id}", use_container_width=True):
-                st.session_state[f"current_page_{table_id}"] = page + 1
+            if st.button("下一页", key=f"next_page_{table_id}"):
+                st.session_state[f"current_page_{table_id}"] = page + 1  # 修复：加table_id
                 st.rerun()
-
     return total_rows
 
 
@@ -3562,56 +3483,38 @@ def main():
                 st.plotly_chart(fig_combined, use_container_width=True)
 
             # ========== 产品列表（全量数据） ==========
-            # ========== 产品列表（全量数据） ==========
             st.subheader(f"{selected_store} 产品列表（年份品+非年份品）")
-
-            # ========== 关键修复：初始化店铺专属的页码状态 ==========
-            table_id = f"store_{selected_store}"
-            page_key = f"current_page_{table_id}"
-            if page_key not in st.session_state:
-                st.session_state[page_key] = 1  # 每个店铺独立初始化页码
-
-            # 上周数据兜底（避免None导致报错）
-            prev_store_data = pd.DataFrame()
-            if prev_data_full is not None and not prev_data_full.empty:
-                prev_store_data = prev_data_full[prev_data_full["店铺"] == selected_store].copy()
-
-            # 调用修复后的表格函数（传店铺专属的页码）
+            display_columns = [
+                "店铺", "MSKU", "品名", "记录时间",
+                "日均", "7天日均", "14天日均", "28天日均",
+                "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
+                "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
+                "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
+                "本地滞销数量", "总滞销库存",
+                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
+                "是否年份品"  # 新增列，方便查看是否年份品
+            ]
+            # 用全量数据渲染产品列表
             render_product_detail_table(
-                data=store_current_data_all,
-                prev_data=prev_store_data,
-                page=st.session_state[page_key],  # 用店铺专属页码，而非全局current_page
+                store_current_data_all,  # 核心：全量数据（年份品+非年份品）
+                prev_data_full[prev_data_full["店铺"] == selected_store] if (
+                            prev_data_full is not None and not prev_data_full.empty) else None,
+                page=st.session_state.current_page,
                 page_size=30,
-                table_id=table_id  # 传递唯一table_id，绑定页码
+                table_id=f"store_{selected_store}"
             )
 
             # ========== 下载数据（全量） ==========
             if not store_current_data_all.empty:
-                display_columns = [
-                    "店铺", "MSKU", "品名", "记录时间",
-                    "日均", "7天日均", "14天日均", "28天日均",
-                    "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
-                    "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均",
-                    "周转天数超过100天的滞销数量",
-                    "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
-                    "本地滞销数量", "总滞销库存",
-                    "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
-                    "是否年份品"
-                ]
                 existing_cols = [col for col in display_columns if col in store_current_data_all.columns]
                 download_data = store_current_data_all[existing_cols].copy()
-
-                # 日期列格式化
                 date_cols = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
                 for col in date_cols:
                     if col in download_data.columns:
                         download_data[col] = pd.to_datetime(download_data[col]).dt.strftime("%Y-%m-%d")
-
-                # 生成CSV
                 csv = download_data.to_csv(index=False, encoding='utf-8-sig')
                 today_str = pd.to_datetime(store_current_data_all["记录时间"].iloc[0]).strftime("%Y%m%d")
                 file_name = f"{selected_store}_产品列表_全量_{today_str}.csv"
-
                 st.download_button(
                     label="下载全量产品列表（年份品+非年份品）",
                     data=csv,
@@ -3619,8 +3522,8 @@ def main():
                     mime="text/csv",
                     key=f"download_{selected_store}_all"
                 )
-            else:
-                st.warning(f"{selected_store} 暂无产品数据")
+    else:
+        st.warning("无店铺数据可分析")
 
     # ========== 单个MSKU分析（全量数据） ==========
     st.subheader("单个MSKU分析（支持年份品+非年份品）")
