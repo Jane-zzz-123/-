@@ -859,95 +859,191 @@ def render_store_status_table(current_data, prev_data):
     st.markdown(html, unsafe_allow_html=True)
 
 
-def render_product_detail_table(data, prev_data=None, page=1, page_size=30, table_id=""):
-    """产品风险详情表"""
-    # ========== 新增：初始化分页状态（关键修复） ==========
+import streamlit as st
+import pandas as pd
+import numpy as np
+from math import ceil
+
+
+# 注意：需确保 STATUS_COLORS 变量已在全局定义（原有代码库已包含）
+# 若未定义，可保留以下行（建议注释，优先复用全局变量）
+# STATUS_COLORS = {
+#     "健康": "#2E8B57",
+#     "低滞销风险": "#FFD700",
+#     "中滞销风险": "#FF8C00",
+#     "高滞销风险": "#DC143C",
+#     "非年份品（无目标日期风险）": "#808080"
+# }
+
+def render_product_detail_table(data, prev_data=None, page=1, page_size=30, table_id="product_detail"):
+    """
+    产品风险详情表（优化版：支持多表格独立分页、修复列名/样式bug）
+    :param data: 当期数据源
+    :param prev_data: 上期数据源（用于环比）
+    :param page: 初始页码（实际以session_state为准）
+    :param page_size: 每页行数
+    :param table_id: 表格唯一标识（区分不同表格的分页状态）
+    """
+    # ========== 核心优化：独立初始化分页状态（按table_id区分） ==========
     if f"current_page_{table_id}" not in st.session_state:
         st.session_state[f"current_page_{table_id}"] = 1
-    # 覆盖传入的page参数为session_state中的值
+    # 强制同步页码为session_state中的值（避免传入参数覆盖）
     page = st.session_state[f"current_page_{table_id}"]
 
+    # 空数据处理
     if data is None or data.empty:
-        st.markdown("<p style='color:#666'>无匹配产品数据</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#666; text-align:center;'>无匹配产品数据</p>", unsafe_allow_html=True)
         return 0
+
+    # 数据预处理：按风险优先级排序
     status_order = {
         "高滞销风险": 0,
         "中滞销风险": 1,
         "低滞销风险": 2,
-        "健康": 3
+        "健康": 3,
+        "非年份品（无目标日期风险）": 4  # 补充非年份品排序
     }
     data = data.copy()
-    # ========== 修复：原代码用了"状态判断"，实际列名是"年份品清仓风险"（关键！） ==========
-    data["_sort_key"] = data["年份品清仓风险"].map(status_order)
+    # 修复：兼容非年份品的排序键
+    data["_sort_key"] = data["年份品清仓风险"].map(status_order).fillna(4)
     data = data.sort_values(by=["_sort_key", "总滞销库存"], ascending=[True, False])
-    data = data.drop(columns=["_sort_key"])
+    data = data.drop(columns=["_sort_key"], errors="ignore")
+
+    # 定义展示列（适配原有代码库的列名）
     display_cols = [
         "MSKU", "品名", "店铺",
         "日均", "7天日均", "14天日均", "28天日均",
         "FBA+AWD+在途库存", "本地可用", "全部总库存",
-        "预计FBA+AWD+在途用完时间", "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
+        "预计FBA+AWD+在途用完时间", "预计总库存用完", "库存周转状态判断",
+        "总库存周转天数100天内达标日均", "周转天数超过100天的滞销数量",
         "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-        "环比上周库年份品滞销风险变化"  # ========== 修复：列名拼写错误 ==========
+        "环比上周库年份品滞销风险变化"
     ]
+    # 过滤数据中实际存在的列（避免KeyError）
     available_cols = [col for col in display_cols if col in data.columns]
     table_data = data[available_cols].copy()
     total_rows = len(table_data)
-    total_pages = ceil(total_rows / page_size)
+    total_pages = max(1, ceil(total_rows / page_size))  # 兜底：至少1页
+
+    # 分页切片（防止索引越界）
     start_idx = (page - 1) * page_size
     end_idx = min(start_idx + page_size, total_rows)
     paginated_data = table_data.iloc[start_idx:end_idx].copy()
+
+    # 日期列格式化（统一显示为YYYY-MM-DD）
     date_cols = ["预计FBA+AWD+在途用完时间", "预计总库存用完"]
     for col in date_cols:
         if col in paginated_data.columns:
-            paginated_data[col] = pd.to_datetime(paginated_data[col]).dt.strftime("%Y-%m-%d")
-    # ========== 修复：列名从"状态判断"改为"年份品清仓风险" ==========
+            paginated_data[col] = pd.to_datetime(paginated_data[col], errors="coerce").dt.strftime("%Y-%m-%d")
+            paginated_data[col] = paginated_data[col].fillna("无数据")  # 空值兜底
+
+    # ========== 修复：年份品风险状态添加颜色样式 ==========
     if "年份品清仓风险" in paginated_data.columns:
         paginated_data["年份品清仓风险"] = paginated_data["年份品清仓风险"].apply(
-            lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
+            lambda x: f"<span style='color:{STATUS_COLORS.get(x, '#808080')}; font-weight:bold;'>{x}</span>"
         )
+
+    # ========== 环比数据处理（兼容空值/异常值） ==========
     if prev_data is not None and not prev_data.empty:
         compare_cols = [
             "日均", "7天日均", "14天日均", "28天日均",
-            "FBA+AWD+在途库存", "本地可用",
-            "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
+            "FBA+AWD+在途库存", "本地可用", "全部总库存",
+            "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数"
         ]
-        valid_compare_cols = [col for col in compare_cols if col in prev_data.columns]
-        prev_map = prev_data.set_index("MSKU")[valid_compare_cols].to_dict("index")
-        def add_compare(row, col):
-            msku = row["MSKU"]
-            curr_val = row[col]
-            prev_val = prev_map.get(msku, {}).get(col, 0)
-            if prev_val == 0:
-                return f"{curr_val:.2f}<br><span style='color:#666'>无数据</span>"
-            diff = curr_val - prev_val
-            pct = (diff / prev_val) * 100
-            if col in ["日均", "7天日均", "14天日均", "28天日均"]:
-                color = "#2E8B57" if diff >= 0 else "#DC143C"
-            else:
-                color = "#2E8B57" if diff <= 0 else "#DC143C"
-            diff_symbol = "+" if diff > 0 else ""
-            pct_symbol = "+" if pct > 0 else ""
-            return f"{curr_val:.2f}<br><span style='color:{color}'>{diff_symbol}{diff:.2f} ({pct_symbol}{pct:.1f}%)</span>"
-        for col in valid_compare_cols:
-            if col in paginated_data.columns:
+        valid_compare_cols = [col for col in compare_cols if col in prev_data.columns and col in paginated_data.columns]
+        if valid_compare_cols:
+            # 构建MSKU到上期数据的映射（避免重复遍历）
+            prev_map = prev_data.set_index("MSKU")[valid_compare_cols].to_dict("index")
+
+            def add_compare(row, col):
+                """生成带环比的单元格内容"""
+                msku = row["MSKU"]
+                curr_val = row[col]
+                prev_val = prev_map.get(msku, {}).get(col, 0)
+
+                # 处理空值/0值（避免除0错误）
+                if pd.isna(curr_val):
+                    curr_val = 0
+                if pd.isna(prev_val) or prev_val == 0:
+                    return f"{curr_val:.2f}<br><span style='color:#666; font-size:12px;'>无上期数据</span>"
+
+                # 计算环比差值和变化率
+                diff = curr_val - prev_val
+                pct = (diff / prev_val) * 100
+
+                # 颜色规则：销量类（日均）越高越好，库存/风险类越低越好
+                if col in ["日均", "7天日均", "14天日均", "28天日均"]:
+                    color = "#2E8B57" if diff >= 0 else "#DC143C"  # 绿色=增长，红色=下降
+                else:
+                    color = "#2E8B57" if diff <= 0 else "#DC143C"  # 绿色=减少，红色=增加
+
+                # 符号处理（正数加+，负数不加）
+                diff_symbol = "+" if diff > 0 else ""
+                pct_symbol = "+" if pct > 0 else ""
+
+                return (
+                    f"{curr_val:.2f}<br>"
+                    f"<span style='color:{color}; font-size:12px;'>"
+                    f"{diff_symbol}{diff:.2f} ({pct_symbol}{pct:.1f}%)</span>"
+                )
+
+            # 为每个可比列生成环比内容
+            for col in valid_compare_cols:
                 paginated_data[col] = paginated_data.apply(lambda x: add_compare(x, col), axis=1)
-    st.markdown(paginated_data.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+    # ========== 表格样式优化（复用原有代码库的样式） ==========
+    st.markdown("""
+    <style>
+    .product-detail-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    .product-detail-table th {
+        background-color: #f8f9fa;
+        text-align: center;
+        padding: 8px 12px;
+        border-bottom: 2px solid #ddd;
+        font-weight: bold;
+    }
+    .product-detail-table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid #ddd;
+        text-align: center;
+    }
+    .product-detail-table tr:hover {
+        background-color: #f1f1f1;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 渲染表格（关闭索引，禁用转义以支持HTML样式）
+    st.markdown(
+        paginated_data.to_html(escape=False, index=False, classes=["product-detail-table"]),
+        unsafe_allow_html=True
+    )
+
+    # ========== 分页按钮（按table_id生成唯一key，避免冲突） ==========
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
         if page > 1:
-            if st.button("上一页", key=f"prev_page_{table_id}"):
-                st.session_state[f"current_page_{table_id}"] = page - 1  # ========== 修复：键名带table_id ==========
-                st.rerun()
+            if st.button("上一页", key=f"prev_page_{table_id}", use_container_width=True):
+                st.session_state[f"current_page_{table_id}"] = page - 1
+                st.rerun()  # 刷新页面以更新数据
     with col2:
-        st.write(f"第 {page} 页，共 {total_pages} 页，共 {total_rows} 条记录")
+        st.markdown(
+            f"<p style='text-align:center; margin:0;'>第 {page} 页，共 {total_pages} 页，总计 {total_rows} 条记录</p>",
+            unsafe_allow_html=True
+        )
     with col3:
         if page < total_pages:
-            if st.button("下一页", key=f"next_page_{table_id}"):
-                st.session_state[f"current_page_{table_id}"] = page + 1  # ========== 修复：键名带table_id ==========
+            if st.button("下一页", key=f"next_page_{table_id}", use_container_width=True):
+                st.session_state[f"current_page_{table_id}"] = page + 1
                 st.rerun()
+
     return total_rows
 
 
