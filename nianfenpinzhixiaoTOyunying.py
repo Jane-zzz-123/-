@@ -3562,38 +3562,56 @@ def main():
                 st.plotly_chart(fig_combined, use_container_width=True)
 
             # ========== 产品列表（全量数据） ==========
+            # ========== 产品列表（全量数据） ==========
             st.subheader(f"{selected_store} 产品列表（年份品+非年份品）")
-            display_columns = [
-                "店铺", "MSKU", "品名", "记录时间",
-                "日均", "7天日均", "14天日均", "28天日均",
-                "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
-                "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
-                "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
-                "本地滞销数量", "总滞销库存",
-                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
-                "是否年份品"  # 新增列，方便查看是否年份品
-            ]
-            # 用全量数据渲染产品列表
+
+            # ========== 关键修复：初始化店铺专属的页码状态 ==========
+            table_id = f"store_{selected_store}"
+            page_key = f"current_page_{table_id}"
+            if page_key not in st.session_state:
+                st.session_state[page_key] = 1  # 每个店铺独立初始化页码
+
+            # 上周数据兜底（避免None导致报错）
+            prev_store_data = pd.DataFrame()
+            if prev_data_full is not None and not prev_data_full.empty:
+                prev_store_data = prev_data_full[prev_data_full["店铺"] == selected_store].copy()
+
+            # 调用修复后的表格函数（传店铺专属的页码）
             render_product_detail_table(
-                store_current_data_all,  # 核心：全量数据（年份品+非年份品）
-                prev_data_full[prev_data_full["店铺"] == selected_store] if (
-                            prev_data_full is not None and not prev_data_full.empty) else None,
-                page=st.session_state.current_page,
+                data=store_current_data_all,
+                prev_data=prev_store_data,
+                page=st.session_state[page_key],  # 用店铺专属页码，而非全局current_page
                 page_size=30,
-                table_id=f"store_{selected_store}"
+                table_id=table_id  # 传递唯一table_id，绑定页码
             )
 
             # ========== 下载数据（全量） ==========
             if not store_current_data_all.empty:
+                display_columns = [
+                    "店铺", "MSKU", "品名", "记录时间",
+                    "日均", "7天日均", "14天日均", "28天日均",
+                    "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
+                    "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均",
+                    "周转天数超过100天的滞销数量",
+                    "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
+                    "本地滞销数量", "总滞销库存",
+                    "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
+                    "是否年份品"
+                ]
                 existing_cols = [col for col in display_columns if col in store_current_data_all.columns]
                 download_data = store_current_data_all[existing_cols].copy()
+
+                # 日期列格式化
                 date_cols = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
                 for col in date_cols:
                     if col in download_data.columns:
                         download_data[col] = pd.to_datetime(download_data[col]).dt.strftime("%Y-%m-%d")
+
+                # 生成CSV
                 csv = download_data.to_csv(index=False, encoding='utf-8-sig')
                 today_str = pd.to_datetime(store_current_data_all["记录时间"].iloc[0]).strftime("%Y%m%d")
                 file_name = f"{selected_store}_产品列表_全量_{today_str}.csv"
+
                 st.download_button(
                     label="下载全量产品列表（年份品+非年份品）",
                     data=csv,
@@ -3601,8 +3619,8 @@ def main():
                     mime="text/csv",
                     key=f"download_{selected_store}_all"
                 )
-    else:
-        st.warning("无店铺数据可分析")
+            else:
+                st.warning(f"{selected_store} 暂无产品数据")
 
     # ========== 单个MSKU分析（全量数据） ==========
     st.subheader("单个MSKU分析（支持年份品+非年份品）")
