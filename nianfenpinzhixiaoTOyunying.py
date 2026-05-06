@@ -12,7 +12,7 @@ from math import ceil
 def check_credentials():
     USER_PERMISSIONS = {
         "黄怡": ("syc-huangyi123", ["思业成-US"]),  # 用户1能看的店铺
-        "泽恒": ("dx-zeheng123", ["定行-US"]),  # 用户2能看的店铺
+        "黄怡-定行": ("dx-HHHyi123", ["定行-US"]),  # 用户2能看的店铺
         "小娇": ("pt and ys-xiaojiao", ["拼途-US","艺胜-US"]),  # 用户3能看的店铺
         "楷纯": ("zy and cr-kaichun", ["争艳-US","辰瑞-US"]),  # 用户4能看的店铺
         "淑谊": ("sx and jy-shuyi", ["势兴-US","进益-US"]),  # 用户5能看的店铺
