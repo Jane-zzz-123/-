@@ -306,9 +306,9 @@ def load_and_preprocess_data_from_df(df):
         def judge_inventory_turnover(days):
             if pd.isna(days) or days <= 0:
                 return "数据异常"
-            elif days <= 100:
+            elif days <= 120:
                 return "库存周转健康"
-            elif 100 < days <= 150:
+            elif 120 < days <= 150:
                 return "轻度滞销风险"
             elif 150 < days <= 180:
                 return "中度滞销风险"
@@ -317,25 +317,25 @@ def load_and_preprocess_data_from_df(df):
 
         df["库存周转状态判断"] = df["预计总库存需要消耗天数"].apply(judge_inventory_turnover)
 
-        # 新增3：100天内达标日均列
-        df["总库存周转天数100天内达标日均"] = (df["全部总库存"] / 100).round(2)
-        df["总库存周转天数100天内达标日均"] = df["总库存周转天数100天内达标日均"].clip(lower=0).fillna(0)
+        # 新增3：120天内达标日均列
+        df["总库存周转天数120天内达标日均"] = (df["全部总库存"] / 120).round(2)
+        df["总库存周转天数120天内达标日均"] = df["总库存周转天数120天内达标日均"].clip(lower=0).fillna(0)
 
-        # 新增5：周转天数100天内滞销数量（核心逻辑）
+        # 新增5：周转天数120天内滞销数量（核心逻辑）
         def calculate_turnover_overstock(row):
             total_stock = row["全部总库存"]  # 总库存
             daily_avg = row["日均"] if row["日均"] > 0 else 0.1  # 避免日均为0
-            # 100天内可售出的数量
-            sales_in_100_days = daily_avg * 100
-            # 滞销数量 = 总库存 - 100天可售量（最小为0）
-            overstock = max(0, total_stock - sales_in_100_days)
+            # 120天内可售出的数量
+            sales_in_120_days = daily_avg * 120
+            # 滞销数量 = 总库存 - 120天可售量（最小为0）
+            overstock = max(0, total_stock - sales_in_120_days)
             # 可选：如果只想统计年份品的周转滞销，非年份品置为0/nan
             # if not row["是否年份品"]:
             #     overstock = 0  # 或 np.nan
             return round(overstock)
 
         # 生成新列
-        df["周转天数超过100天的滞销数量"] = df.apply(calculate_turnover_overstock, axis=1).astype(int)
+        df["周转天数超过120天的滞销数量"] = df.apply(calculate_turnover_overstock, axis=1).astype(int)
         # 14. 清库存的目标日均
         def calculate_target_sales(row):
             record_date = row["记录时间"]
@@ -879,8 +879,8 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         "日均", "7天日均", "14天日均", "28天日均",
         "FBA+AWD+在途库存", "本地可用", "全部总库存",
         "预计FBA+AWD+在途用完时间", "预计总库存用完",
-        "库存周转状态判断","总库存周转天数100天内达标日均","周转天数超过100天的滞销数量","年份品清仓风险",   # 新增：库存周转状态判断
-        "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",   # 新增：100天达标日均
+        "库存周转状态判断","总库存周转天数120天内达标日均","周转天数超过120天的滞销数量","年份品清仓风险",   # 新增：库存周转状态判断
+        "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",   # 新增：120天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
         "环比上周库年份品滞销风险变化"
@@ -1705,8 +1705,8 @@ def render_status_change_table(data, page=1, page_size=30):
         "MSKU", "品名", "店铺", "是否年份品", "记录时间",  # 新增：是否年份品
         "日均", "7天日均", "14天日均", "28天日均",
         "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
-        "库存周转状态判断","总库存周转天数100天内达标日均",  "周转天数超过100天的滞销数量","年份品清仓风险",  # 新增：库存周转状态判断
-        "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",  # 新增：100天达标日均
+        "库存周转状态判断","总库存周转天数120天内达标日均",  "周转天数超过120天的滞销数量","年份品清仓风险",  # 新增：库存周转状态判断
+        "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",  # 新增：120天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
     ]
@@ -2319,14 +2319,14 @@ def main():
         - **非年份品**：无目标日期风险，仅统计库存数据。
 
         #### 二、库存周转状态分类（按周转天数）
-        - **库存周转健康**：库存周转天数 ≤ 100 天；
-        - **轻度滞销风险**：库存周转天数 100 < 天数 ≤ 150 天；
+        - **库存周转健康**：库存周转天数 ≤ 120 天；
+        - **轻度滞销风险**：库存周转天数 120 < 天数 ≤ 150 天；
         - **中度滞销风险**：库存周转天数 150 < 天数 ≤ 180 天；
         - **严重滞销风险**：库存周转天数 > 180 天。
 
-        #### 三、100天达标日均说明
-        总库存周转天数需控制在100天内时，每日需完成的销量：
-        > 100天达标日均 = 全部总库存 ÷ 100
+        #### 三、120天达标日均说明
+        总库存周转天数需控制在120天内时，每日需完成的销量：
+        > 120天达标日均 = 全部总库存 ÷ 120
         """, unsafe_allow_html=False)
         st.subheader("数据加载中...")
         try:
@@ -2784,7 +2784,7 @@ def main():
                         base_metrics[status] = status_counts.get(status, 0)
                     # 计算周转滞销库存总量
                     base_metrics["周转滞销库存总量"] = data[
-                        "周转天数超过100天的滞销数量"].sum() if "周转天数超过100天的滞销数量" in data.columns else 0
+                        "周转天数超过120天的滞销数量"].sum() if "周转天数超过120天的滞销数量" in data.columns else 0
 
                 # 环比指标（本周 vs 上周）
                 compare_metrics = {}
@@ -2796,7 +2796,7 @@ def main():
                     for status in ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]:
                         prev_metrics[status] = prev_status_counts.get(status, 0)
                     prev_metrics["周转滞销库存总量"] = prev_data[
-                        "周转天数超过100天的滞销数量"].sum() if "周转天数超过100天的滞销数量" in prev_data.columns else 0
+                        "周转天数超过120天的滞销数量"].sum() if "周转天数超过120天的滞销数量" in prev_data.columns else 0
 
                     # 生成环比对比
                     compare_metrics = compare_turnover_metrics(base_metrics, prev_metrics)
@@ -2807,8 +2807,8 @@ def main():
                 base_metrics["状态变化"] = calculate_turnover_status_change(data,
                                                                             prev_data) if prev_data is not None else {}
                 # 新增：周转滞销库存环比
-                base_metrics["周转滞销库存总量_上周"] = prev_data["周转天数超过100天的滞销数量"].sum() if (
-                            prev_data is not None and not prev_data.empty and "周转天数超过100天的滞销数量" in prev_data.columns) else 0
+                base_metrics["周转滞销库存总量_上周"] = prev_data["周转天数超过120天的滞销数量"].sum() if (
+                            prev_data is not None and not prev_data.empty and "周转天数超过120天的滞销数量" in prev_data.columns) else 0
 
                 return base_metrics
 
@@ -2882,7 +2882,7 @@ def main():
                     if not last_week_data.empty:
                         metrics = calculate_turnover_metrics(last_week_data)
                         metrics["周转滞销库存总量"] = last_week_data[
-                            "周转天数超过100天的滞销数量"].sum() if "周转天数超过100天的滞销数量" in last_week_data.columns else 0
+                            "周转天数超过120天的滞销数量"].sum() if "周转天数超过120天的滞销数量" in last_week_data.columns else 0
                         return metrics, last_week_data
 
                 return {
@@ -2943,8 +2943,8 @@ def main():
             with cols_turnover[0]:
                 data = turnover_metrics["总MSKU数"]
                 compare_text = get_turnover_compare_text_metric(data, "总MSKU数")
-                total_turnover_overstock = turnover_current_data["周转天数超过100天的滞销数量"].sum() if (
-                        turnover_current_data is not None and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                total_turnover_overstock = turnover_current_data["周转天数超过120天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "周转天数超过120天的滞销数量" in turnover_current_data.columns) else 0
                 last_week_total_turnover_overstock = turnover_last_week_metrics.get("周转滞销库存总量", 0)
                 overstock_text = get_turnover_compare_text(total_turnover_overstock, last_week_total_turnover_overstock)
                 render_metric_card(
@@ -2960,12 +2960,12 @@ def main():
                 compare_text = get_turnover_compare_text_metric(data, "库存周转健康")
                 healthy_turnover_overstock = \
                 turnover_current_data[turnover_current_data["库存周转状态判断"] == "库存周转健康"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过120天的滞销数量" in turnover_current_data.columns) else 0
                 last_week_healthy_turnover_overstock = \
                 turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "库存周转健康"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过120天的滞销数量" in turnover_last_week_data.columns) else 0
                 overstock_text = get_turnover_compare_text(healthy_turnover_overstock,
                                                            last_week_healthy_turnover_overstock,
                                                            status="周转健康")
@@ -2983,12 +2983,12 @@ def main():
                 compare_text = get_turnover_compare_text_metric(data, "轻度滞销风险")
                 low_turnover_overstock = \
                 turnover_current_data[turnover_current_data["库存周转状态判断"] == "轻度滞销风险"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过120天的滞销数量" in turnover_current_data.columns) else 0
                 last_week_low_turnover_overstock = \
                 turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "轻度滞销风险"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过120天的滞销数量" in turnover_last_week_data.columns) else 0
                 overstock_text = get_turnover_compare_text(low_turnover_overstock, last_week_low_turnover_overstock,
                                                            status="轻度滞销")
                 change_text = get_turnover_status_change_text("轻度滞销风险", turnover_status_change)
@@ -3005,12 +3005,12 @@ def main():
                 compare_text = get_turnover_compare_text_metric(data, "中度滞销风险")
                 mid_turnover_overstock = \
                 turnover_current_data[turnover_current_data["库存周转状态判断"] == "中度滞销风险"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过120天的滞销数量" in turnover_current_data.columns) else 0
                 last_week_mid_turnover_overstock = \
                 turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "中度滞销风险"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过120天的滞销数量" in turnover_last_week_data.columns) else 0
                 overstock_text = get_turnover_compare_text(mid_turnover_overstock, last_week_mid_turnover_overstock,
                                                            status="中度滞销")
                 change_text = get_turnover_status_change_text("中度滞销风险", turnover_status_change)
@@ -3027,12 +3027,12 @@ def main():
                 compare_text = get_turnover_compare_text_metric(data, "严重滞销风险")
                 high_turnover_overstock = \
                 turnover_current_data[turnover_current_data["库存周转状态判断"] == "严重滞销风险"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过120天的滞销数量" in turnover_current_data.columns) else 0
                 last_week_high_turnover_overstock = \
                 turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "严重滞销风险"][
-                    "周转天数超过100天的滞销数量"].sum() if (
-                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                    "周转天数超过120天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过120天的滞销数量" in turnover_last_week_data.columns) else 0
                 overstock_text = get_turnover_compare_text(high_turnover_overstock, last_week_high_turnover_overstock,
                                                            status="严重滞销")
                 change_text = get_turnover_status_change_text("严重滞销风险", turnover_status_change)
@@ -3193,12 +3193,12 @@ def main():
                 # 本周全量
                 current_total_msku = len(current_week_store_data) if (
                             current_week_store_data is not None and not current_week_store_data.empty) else 0
-                current_total_stock = current_week_store_data["周转天数超过100天的滞销数量"].sum() if (
+                current_total_stock = current_week_store_data["周转天数超过120天的滞销数量"].sum() if (
                             current_week_store_data is not None and not current_week_store_data.empty) else 0
                 # 上周全量
                 previous_total_msku = len(previous_week_store_data) if (
                             previous_week_store_data is not None and not previous_week_store_data.empty) else 0
-                previous_total_stock = previous_week_store_data["周转天数超过100天的滞销数量"].sum() if (
+                previous_total_stock = previous_week_store_data["周转天数超过120天的滞销数量"].sum() if (
                             previous_week_store_data is not None and not previous_week_store_data.empty) else 0
 
                 # 3. 单状态维度统计（健康/低/中/高/数据异常）
@@ -3209,7 +3209,7 @@ def main():
                     if current_week_store_data is not None and not current_week_store_data.empty:
                         current_filter = current_week_store_data["库存周转状态判断"] == status_key
                         current_msku = len(current_week_store_data[current_filter])
-                        current_stock = current_week_store_data[current_filter]["周转天数超过100天的滞销数量"].sum()
+                        current_stock = current_week_store_data[current_filter]["周转天数超过120天的滞销数量"].sum()
 
                     # 上周数据
                     previous_msku = 0
@@ -3217,7 +3217,7 @@ def main():
                     if previous_week_store_data is not None and not previous_week_store_data.empty:
                         previous_filter = previous_week_store_data["库存周转状态判断"] == status_key
                         previous_msku = len(previous_week_store_data[previous_filter])
-                        previous_stock = previous_week_store_data[previous_filter]["周转天数超过100天的滞销数量"].sum()
+                        previous_stock = previous_week_store_data[previous_filter]["周转天数超过120天的滞销数量"].sum()
 
                     # 计算占比
                     msku_ratio = (current_msku / current_total_msku * 100) if current_total_msku != 0 else 0.0
@@ -3238,8 +3238,8 @@ def main():
                         "MSKU数": current_msku,
                         "MSKU占比": f"{msku_ratio:.1f}%",
                         "MSKU环比变化": msku_change,
-                        "周转天数超过100天的滞销数量": current_stock,
-                        "周转天数超过100天的滞销数量占比": f"{stock_ratio:.1f}%",
+                        "周转天数超过120天的滞销数量": current_stock,
+                        "周转天数超过120天的滞销数量占比": f"{stock_ratio:.1f}%",
                         "库存环比变化": stock_change
                     })
 
@@ -3251,7 +3251,7 @@ def main():
                     if current_week_store_data is not None and not current_week_store_data.empty:
                         current_filter = current_week_store_data["库存周转状态判断"].isin(combine_status)
                         current_msku = len(current_week_store_data[current_filter])
-                        current_stock = current_week_store_data[current_filter]["周转天数超过100天的滞销数量"].sum()
+                        current_stock = current_week_store_data[current_filter]["周转天数超过120天的滞销数量"].sum()
 
                     # 上周数据
                     previous_msku = 0
@@ -3259,7 +3259,7 @@ def main():
                     if previous_week_store_data is not None and not previous_week_store_data.empty:
                         previous_filter = previous_week_store_data["库存周转状态判断"].isin(combine_status)
                         previous_msku = len(previous_week_store_data[previous_filter])
-                        previous_stock = previous_week_store_data[previous_filter]["周转天数超过100天的滞销数量"].sum()
+                        previous_stock = previous_week_store_data[previous_filter]["周转天数超过120天的滞销数量"].sum()
 
                     # 计算占比
                     msku_ratio = (current_msku / current_total_msku * 100) if current_total_msku != 0 else 0.0
@@ -3280,8 +3280,8 @@ def main():
                         "MSKU数": current_msku,
                         "MSKU占比": f"{msku_ratio:.1f}%",
                         "MSKU环比变化": msku_change,
-                        "周转天数超过100天的滞销数量": current_stock,
-                        "周转天数超过100天的滞销数量占比": f"{stock_ratio:.1f}%",
+                        "周转天数超过120天的滞销数量": current_stock,
+                        "周转天数超过120天的滞销数量占比": f"{stock_ratio:.1f}%",
                         "库存环比变化": stock_change
                     })
 
@@ -3326,7 +3326,7 @@ def main():
                 # 构建带颜色的HTML表格
                 html_table = "<table class='risk-summary-table'><thead><tr>"
                 # 表头（和目标表完全一致）
-                headers = ["库存周转状态判断", "MSKU数", "MSKU占比", "MSKU环比变化", "周转天数超过100天的滞销数量", "周转天数超过100天的滞销数量占比",
+                headers = ["库存周转状态判断", "MSKU数", "MSKU占比", "MSKU环比变化", "周转天数超过120天的滞销数量", "周转天数超过120天的滞销数量占比",
                            "库存环比变化"]
                 for header in headers:
                     html_table += f"<th>{header}</th>"
@@ -3488,7 +3488,7 @@ def main():
                 "店铺", "MSKU", "品名", "记录时间",
                 "日均", "7天日均", "14天日均", "28天日均",
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
-                "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
+                "预计总库存用完", "库存周转状态判断", "总库存周转天数120天内达标日均","周转天数超过120天的滞销数量",
                 "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                 "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
@@ -3566,7 +3566,7 @@ def main():
                     "MSKU", "品名", "店铺", "是否年份品",
                     "日均", "7天日均", "14天日均", "28天日均",
                     "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
-                    "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
+                    "库存周转状态判断", "总库存周转天数120天内达标日均","周转天数超过120天的滞销数量",
                     "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                     "本地滞销数量", "总滞销库存",
                     "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
@@ -3651,7 +3651,7 @@ def main():
             # "12月1-31日系数", "12月1-31日调整后日均",
             "FBA+AWD+在途库存", "本地可用",
             "全部总库存", "预计FBA+AWD+在途用完时间",
-            "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
+            "预计总库存用完", "库存周转状态判断", "总库存周转天数120天内达标日均","周转天数超过120天的滞销数量",
             "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均",
             "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
@@ -3671,7 +3671,7 @@ def main():
                 # "12月1-31日系数", "12月1-31日调整后日均",
                 "FBA+AWD+在途库存", "本地可用",
                 "全部总库存", "预计FBA+AWD+在途用完时间",
-                "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
+                "预计总库存用完", "库存周转状态判断", "总库存周转天数120天内达标日均","周转天数超过120天的滞销数量",
                 "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
                 "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
@@ -3736,7 +3736,7 @@ def main():
                 # "11月16-30日系数", "11月16-30日调整后日均",
                 # "12月1-31日系数", "12月1-31日调整后日均",
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
-                "库存周转状态判断", "总库存周转天数100天内达标日均","周转天数超过100天的滞销数量",
+                "库存周转状态判断", "总库存周转天数120天内达标日均","周转天数超过120天的滞销数量",
                 "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
             ]
