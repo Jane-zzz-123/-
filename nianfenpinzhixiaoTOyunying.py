@@ -105,7 +105,7 @@ def load_and_preprocess_data_from_df(df):
         required_base_cols = [
             "MSKU", "品名", "店铺", "记录时间", "日均",
             "FBA库存", "FBA在途", "海外仓可用", "海外仓在途", "本地可用",
-            "待检待上架量", "待交付"
+            "待检待上架量", "待交付","90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
         ]
         missing_cols = [col for col in required_base_cols if col not in df.columns]
         if missing_cols:
@@ -115,7 +115,7 @@ def load_and_preprocess_data_from_df(df):
         # 基础数据清洗
         df["记录时间"] = pd.to_datetime(df["记录时间"]).dt.normalize()
         numeric_cols = ["日均", "FBA库存", "FBA在途", "海外仓可用", "海外仓在途",
-                        "本地可用", "待检待上架量", "待交付"]
+                        "本地可用", "待检待上架量", "待交付","90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
@@ -883,7 +883,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",   # 新增：120天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-        "环比上周库年份品滞销风险变化"
+        "环比上周库年份品滞销风险变化","90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
     ]
 
     available_cols = [col for col in display_cols if col in data.columns]
@@ -923,7 +923,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
             "日均", "7天日均", "14天日均", "28天日均",
             "FBA+AWD+在途库存", "本地可用",
             "全部总库存", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-            "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数"
+            "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数","90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
         ]
         valid_compare_cols = [col for col in compare_cols if col in prev_data.columns]
         prev_map = prev_data.set_index("MSKU")[valid_compare_cols].to_dict("index")
@@ -1708,7 +1708,8 @@ def render_status_change_table(data, page=1, page_size=30):
         "库存周转状态判断","总库存周转天数120天内达标日均",  "周转天数超过120天的滞销数量","年份品清仓风险",  # 新增：库存周转状态判断
         "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",  # 新增：120天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-        "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
+        "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
+        "90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
     ]
 
     available_cols = [col for col in display_cols if col in data.columns]
@@ -3492,7 +3493,7 @@ def main():
                 "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                 "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
-                "是否年份品"  # 新增列，方便查看是否年份品
+                "是否年份品","90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
             ]
             # 用全量数据渲染产品列表
             render_product_detail_table(
@@ -3569,7 +3570,8 @@ def main():
                     "库存周转状态判断", "总库存周转天数120天内达标日均","周转天数超过120天的滞销数量",
                     "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                     "本地滞销数量", "总滞销库存",
-                    "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
+                    "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
+                    "90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
                 ]
                 valid_display_cols = [col for col in display_cols if col in product_data.columns]
                 info_df = product_data[valid_display_cols].copy()
@@ -3655,7 +3657,7 @@ def main():
             "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均",
             "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-            "环比上周库年份品滞销风险变化"
+            "环比上周库年份品滞销风险变化","90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
         ]
         render_status_change_table(
             analysis_data,
@@ -3675,7 +3677,7 @@ def main():
                 "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
                 "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-                "环比上周库年份品滞销风险变化"
+                "环比上周库年份品滞销风险变化","90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
             ]
             filtered_data = analysis_data.copy()
             actual_columns = filtered_data.columns.tolist()
@@ -3738,7 +3740,8 @@ def main():
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
                 "库存周转状态判断", "总库存周转天数120天内达标日均","周转天数超过120天的滞销数量",
                 "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
+                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
+                "90-180天库龄数量","181-270天库龄数量","大于270天库龄数量"
             ]
             valid_display_cols = [col for col in display_cols if col in product_history_data.columns]
             if not valid_display_cols:
