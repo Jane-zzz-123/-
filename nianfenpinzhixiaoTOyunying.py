@@ -2382,54 +2382,54 @@ def main():
     )
 
     # ========== 核心修改：分离全量数据和年份品 ==========
-    # ========== 核心修改：分离全量数据和年份品 ==========
     # 1. 获取全量的当前周数据（包含年份品+非年份品）
     current_data_full = get_week_data(df, selected_date)
-    # 兜底：函数返回None则替换为空DataFrame
+    # 兜底：函数返回None直接转为空df
     if current_data_full is None:
         current_data_full = pd.DataFrame()
-    # 2. 过滤年份品，初始化为空df，杜绝None
+    # 2. 过滤年份，初始化空df，杜绝None
     current_data_year = pd.DataFrame()
-    # 这里原来写错 current_data，要改成 current_data_full
     if not current_data_full.empty:
         current_data_year = current_data_full[current_data_full["是否年份品"] == True].copy()
 
     # 3. 获取全量上周数据
     prev_data_full = get_previous_week_turnover_data(df, selected_date)
-    # 兜底：函数返回None则替换为空DataFrame
     if prev_data_full is None:
         prev_data_full = pd.DataFrame()
-    # 4. 上周年份品，同样初始空df
+    # 4. 上周年份品
     prev_data_year = pd.DataFrame()
     if not prev_data_full.empty:
         prev_data_year = prev_data_full[prev_data_full["是否年份品"] == True].copy()
 
-    # 赋值（后续代码无需改动）
+    # 赋值
     current_data = current_data_year
     prev_data = prev_data_year
 
     st.subheader("1 店铺整体分析")
-    # 现在current_data一定是DataFrame，不可能为None，只判断空表
+    # 第一层：判断是否为空表
     if current_data.empty:
         st.info("当前所选日期暂无年份品数据，请切换其他记录时间查看")
     else:
-        stores = sorted(current_data["店铺"].unique())
-        if len(stores) == 0:
-            st.warning("当前年份品数据无有效店铺信息")
+        # 新增关键判断：校验"店铺"列是否存在，不存在直接拦截报错
+        if "店铺" not in current_data.columns:
+            st.warning("年份数据缺失【店铺】字段，无法加载店铺列表")
         else:
-            selected_store = st.selectbox("选择店铺进行分析", options=stores)
-            if selected_store:
-                # 下方你所有的分析代码保持原样，全部缩进在此if内
+            stores = sorted(current_data["店铺"].unique())
+            if len(stores) == 0:
+                st.warning("当前年份品数据无有效店铺信息")
+            else:
+                selected_store = st.selectbox("选择店铺进行分析", options=stores)
+                if selected_store:
                 # ========== 店铺数据初始化 ==========
                 # 全量店铺数据（包含年份品+非年份品）- 用于产品列表/下载
-                store_current_data_all = current_data_full[current_data_full["店铺"] == selected_store].copy()
+                    store_current_data_all = current_data_full[current_data_full["店铺"] == selected_store].copy()
                 # 年份品店铺数据 初始化为空DF，杜绝None
-                store_current_data = pd.DataFrame()
-                if not store_current_data_all.empty:
-                    store_current_data = store_current_data_all[store_current_data_all["是否年份品"] == True].copy()
-                store_current_metrics = calculate_status_metrics(
-                    store_current_data) if (store_current_data is not None and not store_current_data.empty) else {}
-                st.subheader("年份品清仓风险分析")
+                    store_current_data = pd.DataFrame()
+                    if not store_current_data_all.empty:
+                        store_current_data = store_current_data_all[store_current_data_all["是否年份品"] == True].copy()
+                    store_current_metrics = calculate_status_metrics(
+                        store_current_data) if (store_current_data is not None and not store_current_data.empty) else {}
+                    st.subheader("年份品清仓风险分析")
 
                 # ========== 上周数据处理 ==========
                 def get_store_last_week_metrics():
