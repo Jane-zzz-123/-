@@ -11,13 +11,14 @@ from math import ceil
 # 用户认证与权限管理
 def check_credentials():
     USER_PERMISSIONS = {
-        "黄怡": ("syc-huangyi123", ["思业成-US"]),  # 用户1能看的店铺
-        "黄怡-定行": ("dx-HHHyi123", ["定行-US"]),  # 用户2能看的店铺
-        "小娇": ("pt and ys-xiaojiao", ["拼途-US","艺胜-US"]),  # 用户3能看的店铺
-        "楷纯": ("zy and cr-kaichun", ["争艳-US","辰瑞-US"]),  # 用户4能看的店铺
-        "淑谊": ("sx and jy-shuyi", ["势兴-US","进益-US"]),  # 用户5能看的店铺
+        "黄怡": ("syc-huangyi123", ["思业成-US","创奇-US黄怡D"]),  # 用户1能看的店铺
+        "镱娜": ("dx-yyyna123", ["定行-US","创奇-US镱娜H"]),  # 用户2能看的店铺
+        "小娇": ("pt and ys-xiaojiao", ["拼途-US","艺胜-US","创奇-US小娇C"]),  # 用户3能看的店铺
+        "楷纯": ("zy and cr-kaichun", ["争艳-US","辰瑞-US","创奇-US楷纯E"]),  # 用户4能看的店铺
+        "淑谊": ("sx and jy-shuyi", ["势兴-US","进益-US","创奇-US淑谊F"]),  # 用户5能看的店铺
         "佰英": ("cq-baiying123", ["创奇-US"]),  # 用户6能看的店铺
-        "李珊": ("dm-lishan123", ["大卖-US"]),  # 用户7能看的店铺
+        "李珊": ("dm-lishan123", ["大卖-US","创奇-US李珊G"]),  # 用户7能看的店铺
+        "雨宜": ("cq-uuuyi123", ["创奇-US雨宜B"]),  # 用户7能看的店铺
         "admin": ("admin1234", None)  # 管理员能看所有店铺
     }
     all_users = list(USER_PERMISSIONS.keys())
