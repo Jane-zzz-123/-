@@ -2381,27 +2381,36 @@ def main():
         format_func=lambda x: x.strftime("%Y年%m月%d日")
     )
 
-    # ========== 核心修改：分离全量数据和年份品数据 ==========
-    # 1. 获取全量的当前周数据（包含年份品+非年份品）- 用于产品列表/单个MSKU
+    # ========== 核心修改：分离全量数据和年份品 ==========
+    # ========== 核心修改：分离全量数据和年份品 ==========
+    # 1. 获取全量的当前周数据（包含年份品+非年份品）
     current_data_full = get_week_data(df, selected_date)
-    # 2. 过滤出年份品数据 - 用于指标/图表统计
-    current_data_year = None
-    if current_data_full is not None and not current_data_full.empty:
+    # 兜底：函数返回None则替换为空DataFrame
+    if current_data_full is None:
+        current_data_full = pd.DataFrame()
+    # 2. 过滤年份品，初始化为空df，杜绝None
+    current_data_year = pd.DataFrame()
+    # 这里原来写错 current_data，要改成 current_data_full
+    if not current_data_full.empty:
         current_data_year = current_data_full[current_data_full["是否年份品"] == True].copy()
 
-    # 3. 获取全量的上周数据（包含年份品+非年份品）
+    # 3. 获取全量上周数据
     prev_data_full = get_previous_week_turnover_data(df, selected_date)
-    # 4. 过滤出年份品的上周数据 - 用于环比统计
-    prev_data_year = None
-    if prev_data_full is not None and not prev_data_full.empty:
+    # 兜底：函数返回None则替换为空DataFrame
+    if prev_data_full is None:
+        prev_data_full = pd.DataFrame()
+    # 4. 上周年份品，同样初始空df
+    prev_data_year = pd.DataFrame()
+    if not prev_data_full.empty:
         prev_data_year = prev_data_full[prev_data_full["是否年份品"] == True].copy()
 
-    # 赋值给原有变量（保持后续代码兼容）
-    current_data = current_data_year  # 指标/图表用
-    prev_data = prev_data_year  # 环比统计用
+    # 赋值（后续代码无需改动）
+    current_data = current_data_year
+    prev_data = prev_data_year
 
     st.subheader("1 店铺整体分析")
-    if current_data is None or current_data.empty:
+    # 现在current_data一定是DataFrame，不可能为None，只判断空表
+    if current_data.empty:
         st.info("当前所选日期暂无年份品数据，请切换其他记录时间查看")
     else:
         stores = sorted(current_data["店铺"].unique())
@@ -2409,8 +2418,8 @@ def main():
             st.warning("当前年份品数据无有效店铺信息")
         else:
             selected_store = st.selectbox("选择店铺进行分析", options=stores)
-            # 关键修复：所有业务代码统一缩进进 if selected_store 内部
             if selected_store:
+                # 下方你所有的分析代码保持原样，全部缩进在此if内
                 # ========== 店铺数据初始化 ==========
                 # 全量店铺数据（包含年份品+非年份品）- 用于产品列表/下载
                 store_current_data_all = current_data_full[current_data_full["店铺"] == selected_store].copy()
