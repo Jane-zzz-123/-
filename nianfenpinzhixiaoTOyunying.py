@@ -337,7 +337,8 @@ def load_and_preprocess_data_from_df(df):
 
         # 生成新列
         df["周转天数超过120天的滞销数量"] = df.apply(calculate_turnover_overstock, axis=1).astype(int)
-        # 14. 清库存的目标日均
+
+        # 14. 清库存的目标日均【修改：区分年份品/非年份品】
         def calculate_target_sales(row):
             record_date = row["记录时间"]
             base_avg = row["日均"] if row["日均"] > 0 else 0.1
@@ -372,11 +373,21 @@ def load_and_preprocess_data_from_df(df):
         days_available = (TARGET_DATE - df["记录时间"]).dt.days
         days_available = np.maximum(days_available, 1)
         df["目标日期前分阶段可售总量"] = df.apply(calculate_target_sales, axis=1)
-        df["清库存的目标日均"] = np.where(
-            df["年份品清仓风险"] == "健康",
-            (df["目标日期前分阶段可售总量"] / days_available).round(2),
-            (df["全部总库存"] / days_available).round(2)
-        )
+
+        # ====== 核心改动在这里：增加是否年份品判断 ======
+        def calc_clear_target_daily(row):
+            if row["是否年份品"]:
+                # 年份品：原有逻辑不变
+                if row["年份品清仓风险"] == "健康":
+                    val = row["目标日期前分阶段可售总量"] / days_available[row.name]
+                else:
+                    val = row["全部总库存"] / days_available[row.name]
+            else:
+                # 非年份品：固定120天
+                val = row["全部总库存"] / 120
+            return round(val, 2)
+
+        df["清库存的目标日均"] = df.apply(calc_clear_target_daily, axis=1)
 
         # ========== 15. 预计清完FBA+AWD+在途需要的日均【修改后支持区分年份品/非年份品】 ==========
         def calculate_fba_awd_target_avg(row):
